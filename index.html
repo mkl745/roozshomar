@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mehr 1 :: Final Boss Countdown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&family=Vazirmatn:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1319; --bg2:#1a212c;
+  --accent:#c9622d; --gold:#d4a64a; --boss:#b23a2e; --teal:#3f8f86;
+  --text:#f3efe7; --muted:#9aa3ad;
+}
+html[data-theme="frost"]{ --accent:#3f8fc9; --gold:#8fd4d0; --boss:#2e6db2; --teal:#4a8fd4; }
+html[data-theme="neon"]{ --accent:#c93fb0; --gold:#8f6ad4; --boss:#7a2eb2; --teal:#3fc9c0; }
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;overflow-x:hidden;-webkit-tap-highlight-color:transparent;}
+body.fa{font-family:'Vazirmatn','Rajdhani',sans-serif;}
+.fixed{position:fixed;inset:0;}
+button{font-family:inherit;}
+.pressable{transition:transform .12s ease;}
+.pressable:active{transform:scale(0.92);}
+
+/* ---------- shared bg photo layers ---------- */
+.bg-photo{position:fixed;inset:0;z-index:0;overflow:hidden;}
+.bg-layer{position:absolute;inset:0;background-size:cover;background-position:center;opacity:0;
+  filter:blur(3px) brightness(0.55) saturate(1.12);transition:opacity 1.1s ease, filter .8s ease;transform:scale(1.04);}
+.bg-layer.active{opacity:1;}
+html[data-theme="frost"] .bg-boss{filter:blur(3px) brightness(0.55) saturate(1.12) hue-rotate(150deg);}
+html[data-theme="neon"] .bg-boss{filter:blur(3px) brightness(0.55) saturate(1.3) hue-rotate(250deg);}
+
+/* ================= INTRO SCREEN ================= */
+#intro-screen{z-index:50;transition:opacity .5s ease;}
+#intro-screen.hide{opacity:0;pointer-events:none;}
+.intro-inner{position:relative;z-index:2;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:6vh 8vw;}
+.play-btn{width:84px;height:84px;border-radius:50%;border:2px solid var(--gold);
+  background:rgba(212,166,74,0.15);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 0 rgba(212,166,74,0.5);animation:pulse-ring 2.2s infinite;cursor:pointer;}
+.play-btn .tri{width:0;height:0;border-top:15px solid transparent;border-bottom:15px solid transparent;border-left:24px solid var(--gold);margin-left:6px;}
+@keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(212,166,74,0.45);}70%{box-shadow:0 0 0 22px rgba(212,166,74,0);}100%{box-shadow:0 0 0 0 rgba(212,166,74,0);}}
+.eyebrow{font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:0.28em;text-transform:uppercase;font-size:clamp(11px,1.6vw,13px);color:var(--gold);text-shadow:0 1px 6px rgba(0,0,0,0.7);}
+.intro-inner h1{font-family:'Orbitron',sans-serif;font-weight:900;font-size:clamp(24px,7vw,40px);letter-spacing:0.03em;
+  background:linear-gradient(90deg,var(--text),var(--gold) 55%,var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 3px 10px rgba(0,0,0,0.7));}
+.intro-inner .sub{color:var(--muted);font-size:clamp(13px,2vw,15px);font-weight:600;text-shadow:0 1px 6px rgba(0,0,0,0.7);}
+
+/* ================= VIDEO SCREEN ================= */
+#video-screen{z-index:40;opacity:0;pointer-events:none;transition:opacity .6s ease;background:#000;}
+#video-screen.show{opacity:1;pointer-events:auto;}
+#intro-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+.video-hud-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 0;z-index:2;}
+.live-tag{display:flex;align-items:center;gap:7px;font-weight:700;letter-spacing:0.18em;font-size:12px;color:var(--text);background:rgba(0,0,0,0.35);padding:6px 10px;border-radius:20px;backdrop-filter:blur(6px);}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--boss);animation:blink 1.1s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.25;}}
+#skip-btn{font-weight:700;letter-spacing:0.1em;font-size:12px;color:var(--text);background:rgba(0,0,0,0.35);border:1px solid rgba(212,166,74,0.5);padding:7px 14px;border-radius:20px;backdrop-filter:blur(6px);opacity:0;transition:opacity .4s;cursor:pointer;}
+#skip-btn.visible{opacity:1;}
+.video-progress{position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(255,255,255,0.15);z-index:2;}
+.video-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--teal),var(--gold));}
+
+/* ================= MAIN (COUNTDOWN) SCREEN ================= */
+#main-screen{position:relative;z-index:10;}
+#bg-canvas{position:fixed;inset:0;z-index:1;}
+#rain-canvas{position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0.25;mix-blend-mode:screen;}
+.tint-boss{position:fixed;inset:0;z-index:3;pointer-events:none;background:radial-gradient(ellipse at 50% 30%,transparent 35%,rgba(178,58,46,0.38) 100%);opacity:0;transition:opacity .8s;}
+body.boss-mode .tint-boss{opacity:1;}
+html[data-theme="frost"] .tint-boss{background:radial-gradient(ellipse at 50% 30%,transparent 35%,rgba(46,109,178,0.38) 100%);}
+html[data-theme="neon"] .tint-boss{background:radial-gradient(ellipse at 50% 30%,transparent 35%,rgba(122,46,178,0.4) 100%);}
+.flash{position:fixed;inset:0;z-index:35;background:#fff;opacity:0;pointer-events:none;}
+.flash.go{animation:flash-pulse .35s ease;}
+@keyframes flash-pulse{0%{opacity:0;}30%{opacity:.55;}100%{opacity:0;}}
+.scene{position:relative;z-index:5;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:clamp(90px,15vh,150px) 5vw clamp(18px,3vh,30px);text-align:center;gap:clamp(14px,2.4vh,22px);}
+.scene>*{opacity:0;transform:translateY(22px);transition:opacity .65s ease,transform .65s cubic-bezier(.22,1,.36,1);}
+.scene.reveal>*{opacity:1;transform:translateY(0);}
+.scene.reveal>*:nth-child(1){transition-delay:.05s;} .scene.reveal>*:nth-child(2){transition-delay:.15s;}
+.scene.reveal>*:nth-child(3){transition-delay:.25s;} .scene.reveal>*:nth-child(4){transition-delay:.35s;}
+.scene.reveal>*:nth-child(5){transition-delay:.45s;} .scene.reveal>*:nth-child(6){transition-delay:.55s;}
+.scene.reveal>*:nth-child(7){transition-delay:.65s;}
+.badge{font-weight:700;letter-spacing:0.22em;font-size:11px;color:var(--gold);border:1px solid rgba(212,166,74,0.45);background:rgba(0,0,0,0.3);padding:4px 12px;border-radius:20px;text-transform:uppercase;}
+.headline{font-family:'Orbitron',sans-serif;font-weight:900;font-size:clamp(22px,6.2vw,38px);line-height:1.2;letter-spacing:0.01em;background:linear-gradient(90deg,var(--text),var(--gold) 55%,var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 3px 10px rgba(0,0,0,0.65));}
+.caption{color:var(--muted);font-size:clamp(13px,2vw,15px);font-weight:600;min-height:20px;transition:opacity .3s;text-shadow:0 2px 8px rgba(0,0,0,0.8);}
+
+/* ---- draggable timer cards ---- */
+.sticky-layer{position:fixed;inset:0;z-index:7;pointer-events:none;}
+.sticky{position:fixed;width:84px;height:84px;border-radius:50%;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:grab;touch-action:none;user-select:none;pointer-events:auto;
+  background:radial-gradient(circle at 30% 26%,#fff 0%,rgba(255,255,255,0.65) 16%,rgba(var(--tint),0.3) 45%,rgba(var(--tint),0.16) 75%,rgba(255,255,255,0.4) 100%);
+  border:1px solid rgba(255,255,255,0.6);box-shadow:inset -6px -8px 16px rgba(255,255,255,0.5),inset 6px 10px 20px rgba(var(--tint),0.3),0 10px 22px rgba(0,0,0,0.3);
+  color:#1c2430;opacity:0;transition:box-shadow .2s,border-radius .5s ease,background .5s ease,color .5s ease,opacity .6s ease,transform .5s cubic-bezier(.34,1.56,.64,1);}
+.sticky.reveal{opacity:1;}
+.sticky.dragging{cursor:grabbing;box-shadow:0 16px 34px rgba(0,0,0,0.6);z-index:9;transition:box-shadow .2s,transform .08s ease;}
+.sticky.pulse{animation:sticky-pulse .5s ease;}
+@keyframes sticky-pulse{0%{filter:brightness(1);}40%{filter:brightness(1.6);}100%{filter:brightness(1);}}
+.sticky .fire-bg{position:absolute;inset:-15%;width:130%;height:130%;object-fit:cover;opacity:0;transition:opacity .6s ease;z-index:0;}
+.sticky .scrim{position:absolute;inset:0;background:rgba(10,5,2,0);transition:background .6s ease;z-index:1;}
+.sticky .num{position:relative;z-index:2;font-family:'Orbitron',sans-serif;font-weight:800;font-size:25px;font-variant-numeric:tabular-nums;line-height:1;}
+.sticky .label{position:relative;z-index:2;font-weight:700;font-size:10px;letter-spacing:0.14em;margin-top:4px;opacity:0.8;}
+#sticky-layer .sticky:nth-child(1){transition-delay:.2s;} #sticky-layer .sticky:nth-child(2){transition-delay:.32s;}
+#sticky-layer .sticky:nth-child(3){transition-delay:.44s;} #sticky-layer .sticky:nth-child(4){transition-delay:.56s;}
+body.boss-mode .sticky{border-radius:14px;background:#1a0d06;border-color:rgba(255,180,120,0.4);box-shadow:0 10px 26px rgba(0,0,0,0.55),0 0 26px rgba(var(--tint),0.4);color:#ffe9c7;}
+body.boss-mode .sticky .fire-bg{opacity:1;}
+body.boss-mode .sticky .scrim{background:rgba(10,5,2,0.34);}
+
+/* ---- mode toggle ---- */
+.mode-toggle{display:flex;border:1px solid rgba(212,166,74,0.35);border-radius:20px;overflow:hidden;background:rgba(0,0,0,0.35);cursor:pointer;}
+.mode-toggle .opt{font-weight:700;font-size:12px;letter-spacing:0.08em;padding:8px 14px;color:var(--muted);transition:all .3s;}
+.mode-toggle .opt.active{background:var(--gold);color:#14181f;}
+body.boss-mode .mode-toggle .opt.safe.active{background:transparent;color:var(--muted);}
+body.boss-mode .mode-toggle .opt.boss{background:var(--boss);color:#fff;}
+
+/* ---- decorative supplies strip (no longer interactive) ---- */
+#supplies-strip{position:relative;z-index:5;padding:4vh 6vw 10vh;display:flex;flex-direction:column;align-items:center;gap:22px;}
+.supplies-row{display:flex;gap:clamp(14px,4vw,28px);}
+.supplies-row img{width:44px;height:44px;object-fit:contain;opacity:0.8;filter:drop-shadow(0 6px 14px rgba(0,0,0,0.5));animation:supply-float 3.4s ease-in-out infinite;}
+.supplies-row img:nth-child(2){animation-delay:.3s;} .supplies-row img:nth-child(3){animation-delay:.6s;} .supplies-row img:nth-child(4){animation-delay:.9s;}
+@keyframes supply-float{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}
+
+/* ---- progress ---- */
+.progress-wrap{width:min(420px,82vw);}
+.progress-track{height:6px;border-radius:6px;background:rgba(255,255,255,0.08);overflow:hidden;}
+.progress-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--teal),var(--gold),var(--accent));width:0%;transition:width 1s linear;}
+.progress-caption{font-size:11px;letter-spacing:0.08em;color:var(--muted);margin-top:7px;font-weight:600;}
+.hint{font-size:11px;color:var(--muted);opacity:0.85;font-weight:600;text-shadow:0 1px 6px rgba(0,0,0,0.8);}
+
+/* ================= BOSS BANNER (finale) ================= */
+#boss-banner{display:none;position:fixed;inset:0;z-index:60;background:rgba(10,6,5,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:6vh 8vw;}
+#boss-banner img{width:min(220px,55vw);border-radius:16px;box-shadow:0 0 60px rgba(178,58,46,0.6);}
+#boss-banner h2{font-family:'Orbitron';font-weight:900;color:var(--gold);font-size:clamp(24px,6.5vw,42px);}
+#boss-banner p{font-weight:600;color:var(--text);font-size:clamp(13px,2.4vw,16px);}
+
+/* ================= TOP CONTROL BAR ================= */
+#control-bar{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:0;right:0;z-index:30;display:flex;justify-content:center;gap:8px;padding:0 12px;opacity:0;transition:opacity .6s ease;pointer-events:none;}
+#control-bar.show{opacity:1;pointer-events:auto;}
+.ctrl-btn{width:40px;height:40px;border-radius:50%;border:1px solid rgba(212,166,74,0.4);background:rgba(15,19,25,0.55);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;color:var(--text);}
+.ctrl-btn.active{border-color:var(--gold);box-shadow:0 0 12px rgba(212,166,74,0.5);}
+.theme-picker{display:flex;gap:4px;background:rgba(15,19,25,0.55);border:1px solid rgba(212,166,74,0.4);border-radius:22px;padding:4px;backdrop-filter:blur(8px);}
+.theme-dot{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;display:flex;align-items:center;justify-content:center;font-size:13px;}
+.theme-dot.active{border-color:var(--text);}
+.theme-dot.boss-t{background:linear-gradient(135deg,#b23a2e,#d4a64a);}
+.theme-dot.frost-t{background:linear-gradient(135deg,#2e6db2,#8fd4d0);}
+.theme-dot.neon-t{background:linear-gradient(135deg,#7a2eb2,#c93fb0);}
+
+/* ================= LEADERBOARD PANEL ================= */
+#lb-overlay{position:fixed;inset:0;background:rgba(6,4,4,0.6);backdrop-filter:blur(4px);z-index:70;display:none;align-items:flex-end;justify-content:center;}
+#lb-overlay.show{display:flex;}
+#lb-panel{width:100%;max-width:480px;max-height:82vh;background:linear-gradient(180deg,#171b22,#0f1319);border:1px solid rgba(212,166,74,0.3);border-radius:22px 22px 0 0;padding:18px 18px calc(env(safe-area-inset-bottom,0px) + 18px);display:flex;flex-direction:column;gap:12px;box-shadow:0 -10px 40px rgba(0,0,0,0.6);animation:sheet-up .35s cubic-bezier(.22,1,.36,1);}
+@keyframes sheet-up{from{transform:translateY(30px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.lb-head{display:flex;justify-content:space-between;align-items:center;}
+.lb-head h3{font-family:'Orbitron';font-size:16px;color:var(--gold);}
+#lb-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;}
+.lb-user-row{display:flex;gap:8px;}
+.lb-user-row input{flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(212,166,74,0.3);border-radius:10px;padding:9px 12px;color:var(--text);font-family:inherit;font-size:14px;}
+.lb-user-row button{background:var(--gold);color:#14181f;border:none;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;}
+#lb-status{font-size:11px;color:var(--muted);min-height:14px;}
+#lb-list{overflow-y:auto;display:flex;flex-direction:column;gap:6px;max-height:44vh;}
+.lb-row{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border-radius:10px;padding:8px 12px;font-size:13px;}
+.lb-row.me{background:rgba(212,166,74,0.14);border:1px solid rgba(212,166,74,0.4);}
+.lb-rank{font-family:'Orbitron';width:22px;text-align:center;color:var(--gold);font-weight:800;font-size:12px;}
+.lb-name{flex:1;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lb-score{font-family:'Orbitron';font-weight:800;color:var(--teal);font-size:13px;}
+.lb-empty{text-align:center;color:var(--muted);font-size:12px;padding:20px 0;}
+
+/* ================= SHARE CARD (offscreen) ================= */
+#share-card{position:fixed;top:-9999px;left:-9999px;width:390px;height:520px;background:radial-gradient(circle at 30% 20%,#2a1810,#0f1319 70%);border-radius:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:30px;color:#f3efe7;font-family:'Rajdhani',sans-serif;text-align:center;}
+#share-card .sc-badge{font-weight:700;letter-spacing:0.22em;font-size:11px;color:#d4a64a;border:1px solid rgba(212,166,74,0.5);padding:5px 14px;border-radius:20px;}
+#share-card .sc-num{font-family:'Orbitron';font-weight:900;font-size:76px;background:linear-gradient(90deg,#f3efe7,#d4a64a,#c9622d);-webkit-background-clip:text;background-clip:text;color:transparent;}
+#share-card .sc-label{font-weight:700;letter-spacing:0.3em;font-size:13px;color:#9aa3ad;}
+#share-card .sc-foot{font-size:11px;color:#9aa3ad;margin-top:10px;}
+
+/* ================= SCROLL MILESTONE SECTION ================= */
+#milestone-section{position:relative;z-index:5;padding:14vh 6vw 18vh;display:flex;flex-direction:column;align-items:center;gap:8vh;perspective:1200px;}
+.ms-heading{font-family:'Orbitron';font-weight:900;font-size:clamp(18px,4.4vw,26px);color:var(--gold);text-align:center;text-shadow:0 3px 10px rgba(0,0,0,0.6);}
+.ms-track{display:flex;flex-direction:column;gap:6vh;width:100%;max-width:520px;}
+.ms-card{position:relative;background:linear-gradient(150deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02));border:1px solid rgba(212,166,74,0.25);border-radius:20px;padding:22px 24px;transform:rotateX(35deg) translateY(60px) scale(0.9);opacity:0;transition:transform .8s cubic-bezier(.22,1,.36,1),opacity .8s ease;transform-style:preserve-3d;box-shadow:0 20px 40px rgba(0,0,0,0.4);}
+.ms-card.in-view{transform:rotateX(0deg) translateY(0) scale(1);opacity:1;}
+.ms-card .ms-day{font-family:'Orbitron';font-weight:900;font-size:34px;color:var(--gold);}
+.ms-card .ms-title{font-weight:700;font-size:16px;margin-top:4px;}
+.ms-card .ms-desc{color:var(--muted);font-size:12px;margin-top:6px;font-weight:600;}
+.ms-card .ms-tag{position:absolute;top:-10px;left:20px;background:var(--boss);color:#fff;font-size:10px;font-weight:800;padding:3px 10px;border-radius:10px;letter-spacing:0.08em;}
+
+/* ================= ENDLESS RUNNER GAME (GRIS / LIMBO style) ================= */
+#game-section{position:relative;z-index:5;padding:12vh 6vw 4vh;display:flex;flex-direction:column;align-items:center;gap:16px;}
+.game-sub{color:var(--muted);font-size:12px;font-weight:600;text-align:center;max-width:340px;}
+#game-wrap{position:relative;width:min(680px,92vw);aspect-ratio:16/10;border-radius:22px;overflow:hidden;border:1px solid rgba(212,166,74,0.3);box-shadow:0 20px 50px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.03) inset;background:#1c1330;touch-action:none;cursor:pointer;}
+#game-canvas{display:block;width:100%;height:100%;}
+#game-hud{position:absolute;top:12px;left:14px;font-family:'Orbitron';font-weight:800;font-size:15px;color:#f3efe7;text-shadow:0 2px 8px rgba(0,0,0,0.8);letter-spacing:0.05em;pointer-events:none;}
+#game-hud::after{content:' M';font-size:10px;opacity:0.7;}
+.game-overlay{position:absolute;inset:0;background:rgba(8,5,14,0.72);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;}
+.game-overlay-inner{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:20px;}
+.go-title{font-family:'Orbitron';font-weight:900;font-size:clamp(20px,5vw,28px);letter-spacing:0.08em;background:linear-gradient(90deg,#f3efe7,#d4a64a,#c9622d);-webkit-background-clip:text;background-clip:text;color:transparent;}
+.go-desc{color:var(--muted);font-size:12px;font-weight:600;}
+.go-score{font-family:'Orbitron';font-weight:900;font-size:44px;color:var(--gold);}
+.go-best{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:0.06em;margin-top:-6px;}
+.go-btn{background:var(--gold);color:#14181f;border:none;border-radius:12px;padding:12px 26px;font-weight:800;font-size:14px;cursor:pointer;margin-top:4px;}
+.go-btn.secondary{background:transparent;border:1px solid rgba(212,166,74,0.5);color:var(--gold);}
+.game-overlay-inner input{background:rgba(255,255,255,0.08);border:1px solid rgba(212,166,74,0.35);border-radius:10px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px;text-align:center;width:200px;max-width:70vw;}
+
+/* ================= USERNAME MODAL ================= */
+#name-modal-overlay{position:fixed;inset:0;background:rgba(6,4,4,0.7);backdrop-filter:blur(4px);z-index:80;display:none;align-items:center;justify-content:center;padding:6vw;}
+#name-modal-overlay.show{display:flex;}
+#name-modal{background:#171b22;border:1px solid rgba(212,166,74,0.35);border-radius:20px;padding:26px 22px;max-width:340px;width:100%;text-align:center;display:flex;flex-direction:column;gap:12px;}
+#name-modal h3{font-family:'Orbitron';color:var(--gold);font-size:16px;}
+#name-modal p{color:var(--muted);font-size:12px;font-weight:600;}
+#name-modal input{background:rgba(255,255,255,0.06);border:1px solid rgba(212,166,74,0.3);border-radius:10px;padding:11px 14px;color:var(--text);font-family:inherit;font-size:15px;text-align:center;}
+#name-modal button{background:var(--gold);color:#14181f;border:none;border-radius:10px;padding:11px;font-weight:800;font-size:14px;cursor:pointer;}
+</style>
+</head>
+<body class="boss-mode fa" style="--wood-url:url(wood.jpg)">
+
+<!-- ================= INTRO ================= -->
+<div id="intro-screen" class="fixed">
+  <div class="bg-photo"><div class="bg-layer active" style="background-image:url(devil.jpg)"></div></div>
+  <div class="intro-inner">
+    <div class="eyebrow">Cinematic Intro</div>
+    <button id="play-btn" class="play-btn pressable"><div class="tri"></div></button>
+    <h1>TAP TO BEGIN</h1>
+    <div class="sub">🔊 Turn your sound on</div>
+  </div>
+</div>
+
+<!-- ================= VIDEO ================= -->
+<div id="video-screen" class="fixed">
+  <video id="intro-video" src="intro.mp4" playsinline webkit-playsinline></video>
+  <div class="video-hud-top">
+    <div class="live-tag"><span class="live-dot"></span>PLAYING</div>
+    <button id="skip-btn" class="pressable">SKIP ⏭</button>
+  </div>
+  <div class="video-progress"><div class="video-progress-fill" id="video-progress-fill"></div></div>
+</div>
+
+<!-- ================= TOP CONTROL BAR ================= -->
+<div id="control-bar">
+  <div class="theme-picker">
+    <div class="theme-dot boss-t active pressable" data-theme="boss" title="Boss"></div>
+    <div class="theme-dot frost-t pressable" data-theme="frost" title="Frost"></div>
+    <div class="theme-dot neon-t pressable" data-theme="neon" title="Neon"></div>
+  </div>
+  <button class="ctrl-btn pressable" id="sound-toggle" title="صدا">🔇</button>
+  <button class="ctrl-btn pressable" id="share-btn" title="اشتراک‌گذاری">📤</button>
+  <button class="ctrl-btn pressable" id="lb-btn" title="لیدربورد">🏆</button>
+</div>
+
+<!-- ================= MAIN / COUNTDOWN ================= -->
+<div id="main-screen" class="fixed">
+  <div class="bg-photo">
+    <div class="bg-layer bg-safe" style="background-image:url(classroom.jpg)"></div>
+    <div class="bg-layer bg-boss active" style="background-image:url(devil.jpg)"></div>
+  </div>
+  <canvas id="bg-canvas"></canvas>
+  <canvas id="rain-canvas"></canvas>
+  <div class="tint-boss"></div>
+  <div class="flash" id="flash"></div>
+
+  <div class="scene">
+    <div class="badge">MEHR 1 · 1405</div>
+    <div class="headline">FINAL BOSS ARRIVES IN</div>
+    <div class="caption" id="caption">Professor Inferno is sharpening the chalk. 🔥</div>
+
+    <button class="mode-toggle pressable" id="mode-toggle">
+      <span class="opt safe">🛡 SAFE ZONE</span><span class="opt boss active">😈 BOSS PREVIEW</span>
+    </button>
+
+    <div class="progress-wrap">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-caption" id="progress-caption">CALCULATING…</div>
+    </div>
+
+    <div class="hint">Tip: drag the timer cards anywhere · scroll down for the game 👇</div>
+  </div>
+
+  <div class="sticky-layer" id="sticky-layer">
+    <div class="sticky" id="card-d" data-rot="-6" style="--tint:212,166,74"><video class="fire-bg" muted loop playsinline></video><div class="scrim"></div><div class="num" id="d">00</div><div class="label">DAYS</div></div>
+    <div class="sticky" id="card-h" data-rot="4" style="--tint:201,98,45"><video class="fire-bg" muted loop playsinline></video><div class="scrim"></div><div class="num" id="h">00</div><div class="label">HRS</div></div>
+    <div class="sticky" id="card-m" data-rot="-4" style="--tint:63,143,134"><video class="fire-bg" muted loop playsinline></video><div class="scrim"></div><div class="num" id="m">00</div><div class="label">MIN</div></div>
+    <div class="sticky" id="card-s" data-rot="7" style="--tint:178,58,46"><video class="fire-bg" muted loop playsinline></video><div class="scrim"></div><div class="num" id="s">00</div><div class="label">SEC</div></div>
+  </div>
+</div>
+
+<!-- ================= ENDLESS RUNNER GAME ================= -->
+<div id="game-section">
+  <div class="ms-heading">🌌 فرار بی‌پایان</div>
+  <p class="game-sub">لمس کن یا اسپیس بزن تا بپری — یه بازی بی‌پایان، ببین چقدر دووم میاری</p>
+  <div id="game-wrap">
+    <canvas id="game-canvas"></canvas>
+    <div id="game-hud">0</div>
+    <div id="game-start-overlay" class="game-overlay">
+      <div class="game-overlay-inner">
+        <div class="go-title">FOREVER RUN</div>
+        <div class="go-desc">یه سفر بی‌پایان تو مه و سکوت غروب</div>
+        <button id="game-start-btn" class="pressable go-btn">▶ شروع</button>
+      </div>
+    </div>
+    <div id="game-over-overlay" class="game-overlay" style="display:none">
+      <div class="game-overlay-inner">
+        <div class="go-title">GAME OVER</div>
+        <div class="go-score" id="go-score-val">0</div>
+        <div class="go-best" id="go-best-val">بهترین: 0</div>
+        <input id="game-username-input" maxlength="16" placeholder="یوزرنیم برای لیدربورد">
+        <button id="game-submit-btn" class="pressable go-btn">ثبت امتیاز</button>
+        <button id="game-retry-btn" class="pressable go-btn secondary">🔁 دوباره</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= SCROLL MILESTONE SECTION ================= -->
+<div id="milestone-section">
+  <div class="ms-heading">📅 روزهای کلیدی تا شروع مدرسه</div>
+  <div class="ms-track" id="ms-track"></div>
+</div>
+
+<!-- ================= DECORATIVE SUPPLIES STRIP ================= -->
+<div id="supplies-strip">
+  <div class="ms-heading" style="font-size:15px">🎒 وسایل مدرسه‌ت آماده‌ست؟</div>
+  <div class="supplies-row">
+    <img src="icon-backpack.png" alt="">
+    <img src="icon-pencil.png" alt="">
+    <img src="icon-apple.png" alt="">
+    <img src="icon-book.png" alt="">
+  </div>
+</div>
+
+<!-- ================= FINALE ================= -->
+<div id="boss-banner">
+  <img src="devil.jpg" alt="">
+  <h2>THE BOSS HAS SPAWNED</h2>
+  <p>First bell. First day. Good luck out there.</p>
+</div>
+
+<!-- ================= LEADERBOARD PANEL ================= -->
+<div id="lb-overlay">
+  <div id="lb-panel">
+    <div class="lb-head">
+      <h3>🏆 لیدربورد فرار بی‌پایان</h3>
+      <button id="lb-close">✕</button>
+    </div>
+    <div class="lb-user-row">
+      <input id="lb-username-input" maxlength="16" placeholder="یوزرنیمت رو بزن…">
+      <button id="lb-submit-btn" class="pressable">ثبت امتیاز</button>
+    </div>
+    <div id="lb-status"></div>
+    <div id="lb-list"><div class="lb-empty">در حال بارگذاری…</div></div>
+  </div>
+</div>
+
+<!-- ================= USERNAME MODAL (first-time) ================= -->
+<div id="name-modal-overlay">
+  <div id="name-modal">
+    <h3>یه اسم برای خودت انتخاب کن 😈</h3>
+    <p>بدون رمز و لاگین — فقط برای نمایش تو لیدربورد عمومی</p>
+    <input id="name-modal-input" maxlength="16" placeholder="مثلاً: Ali_Boss">
+    <button id="name-modal-save" class="pressable">بزن بریم</button>
+  </div>
+</div>
+
+<!-- ================= SHARE CARD (rendered offscreen, snapshotted) ================= -->
+<div id="share-card">
+  <div class="sc-badge">MEHR 1 · 1405 · FINAL BOSS</div>
+  <div class="sc-num" id="sc-days">00</div>
+  <div class="sc-label">DAYS REMAINING</div>
+  <div class="sc-foot" id="sc-foot">roozshomar.onrender.com</div>
+</div>
+
+<!-- Replace with your Suno track: upload the mp3 to the repo root as theme-song.mp3 -->
+<audio id="bg-music" src="theme-song.mp3" loop preload="none"></audio>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/canvas-confetti/1.9.3/confetti.browser.min.js"></script>
+
+<!-- Firebase (leaderboard) -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, getDoc, query, orderBy, limit, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* >>> REPLACE with your own free Firebase project config (console.firebase.google.com) <<<
+   Firestore rules suggestion (Console > Firestore > Rules):
+   match /scores/{id} {
+     allow read: if true;
+     allow write: if request.resource.data.score is int
+       && request.resource.data.score >= 0 && request.resource.data.score < 1000000
+       && request.resource.data.username is string
+       && request.resource.data.username.size() > 0 && request.resource.data.username.size() <= 16;
+   }
+*/
+const firebaseConfig = {
+  apiKey: "AIzaSyAPTCI5fVtVFZcmK4WmO-22wo7qkXK_1jM",
+  authDomain: "roozshar.firebaseapp.com",
+  projectId: "roozshar",
+  storageBucket: "roozshar.firebasestorage.app",
+  messagingSenderId: "132831611941",
+  appId: "1:132831611941:web:884993a0a36350e8a543cc",
+  measurementId: "G-H88CJQDTTZ"
+};
+
+let db = null;
+try{
+  const app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+}catch(e){ console.warn("Firebase not configured yet — leaderboard disabled.", e); }
+
+const lbListEl = document.getElementById('lb-list');
+const lbStatusEl = document.getElementById('lb-status');
+
+function slugUser(name){
+  return name.trim().toLowerCase().replace(/[^a-z0-9_\u0600-\u06ff]/g,'').slice(0,20) || 'guest';
+}
+
+function renderLeaderboard(rows){
+  const myName = localStorage.getItem('rz_username') || '';
+  if(!rows.length){ lbListEl.innerHTML = '<div class="lb-empty">هنوز کسی امتیاز ثبت نکرده — اولین نفر باش!</div>'; return; }
+  lbListEl.innerHTML = rows.map((r,i)=>{
+    const mine = r.username === myName;
+    return `<div class="lb-row ${mine?'me':''}"><span class="lb-rank">${i+1}</span><span class="lb-name">${mine?'👑 ':''}${escapeHtml(r.username)}</span><span class="lb-score">${r.score}m</span></div>`;
+  }).join('');
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function submitScore(username, score){
+  if(!db){ lbStatusEl.textContent = 'لیدربورد هنوز فعال نشده (تنظیمات Firebase لازمه).'; return; }
+  const id = slugUser(username);
+  const ref = doc(collection(db,'scores'), id);
+  try{
+    const existing = await getDoc(ref);
+    if(existing.exists() && (existing.data().score||0) >= score){
+      lbStatusEl.textContent = 'رکورد قبلیت بهتر بود، همون تو لیدربورد موند.';
+      return;
+    }
+    await setDoc(ref, {
+      username: username.trim().slice(0,16),
+      score: Math.floor(score),
+      updatedAt: Date.now()
+    });
+    lbStatusEl.textContent = '✅ امتیازت ثبت شد!';
+  }catch(e){
+    lbStatusEl.textContent = 'خطا در ثبت امتیاز — دوباره امتحان کن.';
+    console.error(e);
+  }
+}
+
+function watchLeaderboard(){
+  if(!db){ lbListEl.innerHTML = '<div class="lb-empty">لیدربورد هنوز فعال نشده — تنظیمات Firebase رو تو کد اضافه کن.</div>'; return; }
+  const q = query(collection(db,'scores'), orderBy('score','desc'), limit(20));
+  onSnapshot(q, snap=>{
+    const rows = snap.docs.map(d=>d.data());
+    renderLeaderboard(rows);
+  }, err=>{ console.error(err); lbStatusEl.textContent = 'اتصال به لیدربورد برقرار نشد.'; });
+}
+
+window.__rzSubmitScore = submitScore;
+window.__rzWatchLeaderboard = watchLeaderboard;
+</script>
+
+<script>
+/* ============ sequence: intro -> video -> main ============ */
+const introScreen = document.getElementById('intro-screen');
+const videoScreen = document.getElementById('video-screen');
+const playBtn = document.getElementById('play-btn');
+const video = document.getElementById('intro-video');
+const skipBtn = document.getElementById('skip-btn');
+const videoFill = document.getElementById('video-progress-fill');
+const controlBar = document.getElementById('control-bar');
+let mainVisible = false;
+
+setTimeout(()=>skipBtn.classList.add('visible'), 1500);
+
+function goToMain(){
+  videoScreen.classList.remove('show');
+  try{ video.pause(); }catch(e){}
+  mainVisible = true;
+  document.querySelector('.scene').classList.add('reveal');
+  revealStickies();
+  controlBar.classList.add('show');
+  initMilestoneObserver();
+}
+playBtn.addEventListener('click', ()=>{
+  video.muted = false;
+  videoScreen.classList.add('show');
+  introScreen.classList.add('hide');
+  video.play().catch(()=>{ goToMain(); });
+  soundReady = true;
+});
+skipBtn.addEventListener('click', goToMain);
+video.addEventListener('ended', goToMain);
+video.addEventListener('timeupdate', ()=>{
+  if(video.duration){ videoFill.style.width = (video.currentTime/video.duration*100)+'%'; }
+});
+
+/* ============ countdown target: 1 Mehr 1405 = Sep 23 2026 (Tehran) ============ */
+const TARGET = new Date('2026-09-23T00:00:00+03:30');
+const PREV_MEHR = new Date('2025-09-23T00:00:00+03:30');
+function pad(n){ return String(n).padStart(2,'0'); }
+
+const MILESTONES = [100,50,30,10,1,0];
+const firedMilestones = JSON.parse(localStorage.getItem('rz_milestones')||'[]');
+
+function fireConfettiIfMilestone(daysLeft){
+  if(MILESTONES.includes(daysLeft) && !firedMilestones.includes(daysLeft)){
+    firedMilestones.push(daysLeft);
+    localStorage.setItem('rz_milestones', JSON.stringify(firedMilestones));
+    if(window.confetti){
+      confetti({ particleCount:140, spread:90, origin:{y:0.35}, colors:['#d4a64a','#c9622d','#b23a2e','#3f8f86'] });
+    }
+  }
+}
+
+function updateCountdown(){
+  const now = new Date();
+  let diff = TARGET - now;
+  if (diff <= 0){
+    document.getElementById('boss-banner').style.display = 'flex';
+    ['d','h','m','s'].forEach(id=>document.getElementById(id).textContent='00');
+    return;
+  }
+  const sec = Math.floor(diff/1000);
+  const days = Math.floor(sec/86400);
+  const hours = Math.floor((sec%86400)/3600);
+  const mins = Math.floor((sec%3600)/60);
+  const secs = sec%60;
+  document.getElementById('d').textContent = days>99 ? String(days) : pad(days);
+  document.getElementById('h').textContent = pad(hours);
+  document.getElementById('m').textContent = pad(mins);
+  document.getElementById('s').textContent = pad(secs);
+  document.getElementById('sc-days').textContent = days;
+
+  const total = TARGET - PREV_MEHR;
+  const elapsed = now - PREV_MEHR;
+  const pct = Math.min(100, Math.max(0, (elapsed/total)*100));
+  document.getElementById('progress-fill').style.width = pct.toFixed(1)+'%';
+  document.getElementById('progress-caption').textContent = pct.toFixed(1)+'% OF THE SCHOOL YEAR ELAPSED';
+
+  fireConfettiIfMilestone(days);
+}
+setInterval(updateCountdown, 1000);
+updateCountdown();
+
+/* ============ theme switcher ============ */
+const THEME_KEY = 'rz_theme';
+function setTheme(name){
+  document.documentElement.setAttribute('data-theme', name);
+  document.querySelectorAll('.theme-dot').forEach(d=>d.classList.toggle('active', d.dataset.theme===name));
+  localStorage.setItem(THEME_KEY, name);
+}
+document.querySelectorAll('.theme-dot').forEach(dot=>{
+  dot.addEventListener('click', ()=>setTheme(dot.dataset.theme));
+});
+setTheme(localStorage.getItem(THEME_KEY) || 'boss');
+
+/* ============ mode toggle (safe / boss) ============ */
+const modeToggle = document.getElementById('mode-toggle');
+const bgSafe = document.querySelector('.bg-safe');
+const bgBoss = document.querySelector('.bg-boss');
+const caption = document.getElementById('caption');
+const flash = document.getElementById('flash');
+const CAPTIONS = {
+  safe: "New notebooks. Clean slate. Zero regrets… yet.",
+  boss: "Professor Inferno is sharpening the chalk. 🔥"
+};
+let bossMode = true;
+modeToggle.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  bossMode = !bossMode;
+  document.body.classList.toggle('boss-mode', bossMode);
+  bgSafe.classList.toggle('active', !bossMode);
+  bgBoss.classList.toggle('active', bossMode);
+  document.querySelector('.opt.safe').classList.toggle('active', !bossMode);
+  document.querySelector('.opt.boss').classList.toggle('active', bossMode);
+  caption.style.opacity = 0;
+  setTimeout(()=>{ caption.textContent = bossMode ? CAPTIONS.boss : CAPTIONS.safe; caption.style.opacity = 1; }, 200);
+  flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
+  playTapSound();
+});
+
+/* ============ sound system ============ */
+let soundReady = false;
+let soundOn = localStorage.getItem('rz_sound') === '1';
+const soundToggleBtn = document.getElementById('sound-toggle');
+const bgMusic = document.getElementById('bg-music');
+function refreshSoundBtn(){ soundToggleBtn.textContent = soundOn ? '🔊' : '🔇'; }
+refreshSoundBtn();
+
+let actx = null;
+function getActx(){ if(!actx) actx = new (window.AudioContext||window.webkitAudioContext)(); return actx; }
+function playBlip(freq, dur, type){
+  if(!soundOn) return;
+  try{
+    const ctx = getActx();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = type||'sine'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + dur);
+  }catch(e){}
+}
+function playTapSound(){ playBlip(320, 0.08, 'triangle'); }
+function playCollectSound(){ playBlip(660, 0.14, 'sine'); setTimeout(()=>playBlip(880,0.12,'sine'), 60); }
+
+soundToggleBtn.addEventListener('click', ()=>{
+  soundOn = !soundOn;
+  localStorage.setItem('rz_sound', soundOn?'1':'0');
+  refreshSoundBtn();
+  if(soundOn){ bgMusic.volume = 0.35; bgMusic.play().catch(()=>{}); playTapSound(); }
+  else{ bgMusic.pause(); }
+});
+if(soundOn){ bgMusic.volume = 0.35; }
+
+/* ============ draggable timer cards ============ */
+function layoutInitial(){
+  const notes = [...document.querySelectorAll('.sticky')];
+  const cx = window.innerWidth/2, cy = window.innerHeight*0.42;
+  const spread = Math.min(85, window.innerWidth*0.21);
+  const offsets = [{x:-1.6,y:-8},{x:-0.55,y:10},{x:0.55,y:-10},{x:1.6,y:8}];
+  notes.forEach((el,i)=>{
+    const w = el.offsetWidth||84, h = el.offsetHeight||84;
+    const x = cx + offsets[i].x*spread - w/2;
+    const y = cy + offsets[i].y - h/2;
+    el.style.left = x+'px'; el.style.top = y+'px';
+    const rot = el.dataset.rot;
+    el.style.transform = 'rotate('+rot+'deg) scale(0.15)';
+  });
+}
+function revealStickies(){
+  document.querySelectorAll('.sticky').forEach(el=>{
+    el.classList.add('reveal');
+    el.style.transform = 'rotate('+el.dataset.rot+'deg) scale(1)';
+  });
+}
+function makeDraggable(el){
+  let dragging=false, offsetX=0, offsetY=0;
+  const rot = el.dataset.rot || 0;
+  el.addEventListener('pointerdown', (e)=>{
+    dragging = true; el.setPointerCapture(e.pointerId);
+    const rect = el.getBoundingClientRect();
+    offsetX = e.clientX - rect.left; offsetY = e.clientY - rect.top;
+    el.classList.add('dragging');
+    el.style.transform = 'rotate('+rot+'deg) scale(1.08)';
+    e.stopPropagation();
+  });
+  el.addEventListener('pointermove', (e)=>{
+    if(!dragging) return;
+    let x = e.clientX - offsetX; let y = e.clientY - offsetY;
+    x = Math.max(4, Math.min(window.innerWidth - el.offsetWidth - 4, x));
+    y = Math.max(4, Math.min(window.innerHeight - el.offsetHeight - 4, y));
+    el.style.left = x+'px'; el.style.top = y+'px';
+    e.stopPropagation();
+  });
+  function endDrag(e){
+    if(!dragging) return;
+    dragging=false; el.classList.remove('dragging');
+    el.style.transform = 'rotate('+rot+'deg) scale(1)';
+    el.classList.add('pulse'); setTimeout(()=>el.classList.remove('pulse'), 500);
+    playTapSound();
+    e.stopPropagation();
+  }
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointercancel', endDrag);
+}
+document.querySelectorAll('.sticky').forEach(makeDraggable);
+layoutInitial();
+
+/* ============ three.js: falling leaves + collectible game ============ */
+const canvas = document.getElementById('bg-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0,0.4,9);
+const baseCamY = camera.position.y, baseCamRotX = camera.rotation.x;
+scene.add(new THREE.AmbientLight(0x33301f,0.6));
+const warmLight = new THREE.PointLight(0xd4a64a,1.6,20); warmLight.position.set(3,4,5); scene.add(warmLight);
+const coolLight = new THREE.PointLight(0x3f6e69,0.8,20); coolLight.position.set(-4,-2,-3); scene.add(coolLight);
+
+function makeLeafTexture(color){
+  const c=document.createElement('canvas'); c.width=c.height=64;
+  const ctx=c.getContext('2d'); ctx.translate(32,32); ctx.rotate(Math.PI/4);
+  ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(0,-26);
+  ctx.quadraticCurveTo(22,-10,0,26); ctx.quadraticCurveTo(-22,-10,0,-26); ctx.fill();
+  return new THREE.CanvasTexture(c);
+}
+const leafTextures = ['#c9622d','#d4a64a','#8c4a2b'].map(makeLeafTexture);
+const leaves = [];
+for(let i=0;i<40;i++){
+  const mat = new THREE.MeshBasicMaterial({map:leafTextures[i%leafTextures.length],transparent:true,side:THREE.DoubleSide,depthWrite:false});
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.32,0.32), mat);
+  resetLeaf(mesh, true); leaves.push(mesh); scene.add(mesh);
+}
+function resetLeaf(mesh, randomHeight){
+  mesh.position.set((Math.random()-0.5)*14, randomHeight?Math.random()*10:6+Math.random()*2, (Math.random()-0.5)*6-2);
+  mesh.userData.speed = 0.006+Math.random()*0.01;
+  mesh.userData.sway = Math.random()*Math.PI*2;
+  mesh.userData.swaySpeed = 0.01+Math.random()*0.02;
+  mesh.userData.rotSpeed = (Math.random()-0.5)*0.03;
+  mesh.rotation.z = Math.random()*Math.PI*2;
+}
+function animateLeaves(){
+  leaves.forEach(mesh=>{
+    mesh.position.y -= mesh.userData.speed*4;
+    mesh.userData.sway += mesh.userData.swaySpeed;
+    mesh.position.x += Math.sin(mesh.userData.sway)*0.006;
+    mesh.rotation.z += mesh.userData.rotSpeed;
+    if(mesh.position.y < -6){ resetLeaf(mesh, false); }
+  });
+}
+
+const FIRE_SRC = "fire.mp4";
+document.querySelectorAll('.sticky .fire-bg').forEach(v=>{ v.src = FIRE_SRC; v.play().catch(()=>{}); });
+
+/* ============ rain overlay ============ */
+const rainCanvas = document.getElementById('rain-canvas');
+const rctx = rainCanvas.getContext('2d');
+let drops = [];
+function initRain(){
+  rainCanvas.width = window.innerWidth; rainCanvas.height = window.innerHeight;
+  const count = Math.floor(window.innerWidth/14);
+  drops = new Array(count).fill(0).map(()=>({x:Math.random()*rainCanvas.width,y:Math.random()*rainCanvas.height,len:10+Math.random()*18,speed:4+Math.random()*6}));
+}
+function drawRain(){
+  rctx.clearRect(0,0,rainCanvas.width,rainCanvas.height);
+  rctx.strokeStyle='rgba(160,190,210,0.5)'; rctx.lineWidth=1;
+  drops.forEach(d=>{
+    rctx.beginPath(); rctx.moveTo(d.x,d.y); rctx.lineTo(d.x-2,d.y+d.len); rctx.stroke();
+    d.y += d.speed; d.x -= 0.6;
+    if(d.y > rainCanvas.height){ d.y=-d.len; d.x=Math.random()*rainCanvas.width; }
+  });
+}
+initRain();
+
+/* ============ scroll parallax on 3D camera ============ */
+window.addEventListener('scroll', ()=>{
+  const p = Math.min(1, window.scrollY / (window.innerHeight*0.9));
+  camera.position.y = baseCamY - p*1.4;
+  camera.rotation.x = baseCamRotX - p*0.12;
+}, { passive:true });
+
+let t = 0;
+function loop(){
+  t += 0.01;
+  animateLeaves();
+  drawRain();
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+loop();
+
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  initRain();
+  document.querySelectorAll('.sticky').forEach(el=>{
+    let x = parseFloat(el.style.left)||0, y = parseFloat(el.style.top)||0;
+    x = Math.max(4, Math.min(window.innerWidth - el.offsetWidth - 4, x));
+    y = Math.max(4, Math.min(window.innerHeight - el.offsetHeight - 4, y));
+    el.style.left = x+'px'; el.style.top = y+'px';
+  });
+});
+
+/* ============ milestone scroll section (3D tilt-in cards) ============ */
+function daysUntil(dateStr){
+  const d = new Date(dateStr) - new Date();
+  return Math.max(0, Math.ceil(d/86400000));
+}
+const MS_DATA = [
+  { date:'2026-09-13T00:00:00+03:30', title:'۱۰۰ روز مونده', desc:'شمارش معکوس واقعی شروع میشه — وقتشه یه برنامه بچینی.', tag:'MILESTONE' },
+  { date:'2026-08-24T00:00:00+03:30', title:'۵۰ روز مونده', desc:'نیمه راه — وسایل مدرسه رو یکی‌یکی جمع کن.', tag:'CHECKPOINT' },
+  { date:'2026-08-24T00:00:00+03:30', title:'۳۰ روز مونده', desc:'آخرین تابستون داره تموم میشه، از فرصت لذت ببر.', tag:'WARNING' },
+  { date:'2026-09-13T00:00:00+03:30', title:'۱۰ روز مونده', desc:'حالت Boss فعال میشه و صدای زنگ نزدیک‌تر میشه.', tag:'ALERT' },
+  { date:'2026-09-22T00:00:00+03:30', title:'۱ روز مونده', desc:'آخرین شب — کوله‌پشتی رو ببند!', tag:'FINAL' },
+  { date:'2026-09-23T00:00:00+03:30', title:'روز صفر', desc:'زنگ اول. Final Boss ظاهر میشه. موفق باشی 🎒', tag:'BOSS' }
+];
+function renderMilestones(){
+  const track = document.getElementById('ms-track');
+  track.innerHTML = MS_DATA.map(m=>{
+    const dl = daysUntil(m.date);
+    return `<div class="ms-card"><span class="ms-tag">${m.tag}</span><div class="ms-day">${dl}</div><div class="ms-title">${m.title}</div><div class="ms-desc">${m.desc}</div></div>`;
+  }).join('');
+}
+renderMilestones();
+function initMilestoneObserver(){
+  const cards = document.querySelectorAll('.ms-card');
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{ if(en.isIntersecting) en.target.classList.add('in-view'); });
+  }, { threshold:0.3 });
+  cards.forEach(c=>io.observe(c));
+}
+
+/* ============ ENDLESS RUNNER GAME — GRIS / LIMBO style, no end ============ */
+(function(){
+  const wrap = document.getElementById('game-wrap');
+  const canvas = document.getElementById('game-canvas');
+  const ctx = canvas.getContext('2d');
+  const hud = document.getElementById('game-hud');
+  const startOverlay = document.getElementById('game-start-overlay');
+  const overOverlay = document.getElementById('game-over-overlay');
+
+  let W=0, H=0, groundY=0;
+  function resizeCanvas(){
+    const rect = wrap.getBoundingClientRect();
+    W = rect.width; H = rect.height; groundY = H*0.78;
+    canvas.width = W*devicePixelRatio; canvas.height = H*devicePixelRatio;
+    canvas.style.width = W+'px'; canvas.style.height = H+'px';
+    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  let running=false, isOver=false, distance=0, speed=4.2, gravity=0.62, elapsedFrames=0, spawnTimer=0;
+  const player = { x:56, y:0, w:24, h:32, vy:0, onGround:true, jumps:0 };
+  let obstacles=[], hillLayers=[], particles=[];
+
+  function initHills(){
+    hillLayers = [
+      { speed:0.15, color:'rgba(35,24,52,0.55)', amp:38, baseY:0.60, offset:0 },
+      { speed:0.35, color:'rgba(22,15,36,0.78)', amp:56, baseY:0.71, offset:10 },
+      { speed:0.6,  color:'rgba(10,7,18,0.95)',  amp:30, baseY:0.82, offset:25 }
+    ];
+  }
+  function initParticles(){
+    particles = new Array(24).fill(0).map(()=>({ x:Math.random(), y:Math.random()*0.65, r:1+Math.random()*1.6, s:0.15+Math.random()*0.3, phase:Math.random()*Math.PI*2 }));
+  }
+  function resetGame(){
+    resizeCanvas();
+    distance=0; speed=4.2; elapsedFrames=0; spawnTimer=40; isOver=false;
+    player.y = groundY - player.h; player.vy=0; player.onGround=true; player.jumps=0;
+    obstacles=[]; initHills(); initParticles();
+  }
+  function spawnObstacle(){
+    const type = Math.random()<0.5 ? 'spike':'block';
+    const h = type==='spike' ? 24+Math.random()*16 : 28+Math.random()*24;
+    const w = type==='spike' ? 18 : 20+Math.random()*12;
+    obstacles.push({ x:W+20, y:groundY-h, w, h, type });
+  }
+  function jump(){
+    if(!running && !isOver){ startGame(); return; }
+    if(isOver) return;
+    if(player.onGround || player.jumps<1){
+      player.vy = -11; player.onGround=false; player.jumps++;
+      playTapSound();
+    }
+  }
+  function update(){
+    elapsedFrames++;
+    distance += speed*0.045;
+    speed = Math.min(11, 4.2 + elapsedFrames*0.0018);
+    player.vy += gravity; player.y += player.vy;
+    if(player.y >= groundY - player.h){ player.y = groundY - player.h; player.vy=0; player.onGround=true; player.jumps=0; }
+    spawnTimer -= speed;
+    if(spawnTimer <= 0){ spawnObstacle(); spawnTimer = 65 + Math.random()*65 - Math.min(speed*3,25); }
+    obstacles.forEach(o=>o.x -= speed);
+    obstacles = obstacles.filter(o=>o.x > -40);
+    const px=player.x, py=player.y, pw=player.w, ph=player.h;
+    for(const o of obstacles){
+      if(px < o.x+o.w-4 && px+pw-4 > o.x && py < o.y+o.h && py+ph > o.y+4){ endGame(); break; }
+    }
+  }
+  function drawHill(layer){
+    ctx.beginPath(); ctx.moveTo(0,H);
+    const baseY = H*layer.baseY;
+    for(let x=0;x<=W;x+=20){
+      const y = baseY + Math.sin((x*0.01)+layer.offset)*layer.amp*0.4 + Math.sin((x*0.004)+layer.offset*1.6)*layer.amp*0.6;
+      ctx.lineTo(x,y);
+    }
+    ctx.lineTo(W,H); ctx.closePath(); ctx.fillStyle=layer.color; ctx.fill();
+  }
+  function draw(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#1c1330'); g.addColorStop(0.55,'#3a2340'); g.addColorStop(0.85,'#7a3d3a'); g.addColorStop(1,'#c9622d');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+    particles.forEach(p=>{
+      p.phase += 0.02;
+      const px = p.x*W + Math.sin(p.phase)*10, py = p.y*H + Math.cos(p.phase*0.7)*8;
+      ctx.globalAlpha = 0.3+Math.sin(p.phase*2)*0.22; ctx.fillStyle='#d4a64a';
+      ctx.beginPath(); ctx.arc(px,py,p.r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+      p.x -= p.s*0.0006; if(p.x<-0.02) p.x=1.02;
+    });
+
+    hillLayers.forEach(layer=>{ layer.offset -= layer.speed*0.01*(speed/4.2); drawHill(layer); });
+
+    ctx.fillStyle='rgba(0,0,0,0.95)'; ctx.fillRect(0,groundY,W,H-groundY);
+
+    ctx.fillStyle='#0a0710';
+    obstacles.forEach(o=>{
+      if(o.type==='spike'){
+        ctx.beginPath(); ctx.moveTo(o.x,o.y+o.h); ctx.lineTo(o.x+o.w/2,o.y); ctx.lineTo(o.x+o.w,o.y+o.h); ctx.closePath(); ctx.fill();
+      } else { ctx.fillRect(o.x,o.y,o.w,o.h); }
+    });
+
+    ctx.save(); ctx.translate(player.x, player.y); ctx.fillStyle='#0a0710';
+    const bob = player.onGround ? Math.sin(elapsedFrames*0.35)*2 : 0;
+    ctx.beginPath(); ctx.ellipse(player.w/2, player.h*0.35+bob, player.w*0.42, player.h*0.38, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillRect(player.w*0.28, player.h*0.55+bob, player.w*0.44, player.h*0.5);
+    ctx.restore();
+
+    hud.textContent = Math.floor(distance);
+  }
+  function loopGame(){
+    if(running && !isOver) update();
+    draw();
+    requestAnimationFrame(loopGame);
+  }
+  function startGame(){
+    startOverlay.style.display='none'; overOverlay.style.display='none';
+    resetGame(); running=true;
+  }
+  const RUNNER_BEST_KEY = 'rz_runner_best';
+  function endGame(){
+    isOver=true; running=false;
+    playBlip(160,0.3,'sawtooth');
+    const score = Math.floor(distance);
+    const best = Math.max(score, parseInt(localStorage.getItem(RUNNER_BEST_KEY)||'0'));
+    localStorage.setItem(RUNNER_BEST_KEY, best);
+    document.getElementById('go-score-val').textContent = score;
+    document.getElementById('go-best-val').textContent = 'بهترین: '+best+'m';
+    document.getElementById('game-username-input').value = localStorage.getItem('rz_username')||'';
+    document.getElementById('game-submit-btn').textContent = 'ثبت امتیاز';
+    overOverlay.style.display='flex';
+    window.__rzLastScore = score;
+  }
+  document.getElementById('game-start-btn').addEventListener('click', startGame);
+  document.getElementById('game-retry-btn').addEventListener('click', startGame);
+  wrap.addEventListener('pointerdown', (e)=>{ e.preventDefault(); jump(); });
+  window.addEventListener('keydown', (e)=>{ if(e.code==='Space' && mainVisible){ e.preventDefault(); jump(); } });
+  document.getElementById('game-submit-btn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const name = document.getElementById('game-username-input').value.trim();
+    if(!name) return;
+    localStorage.setItem('rz_username', name);
+    if(window.__rzSubmitScore) window.__rzSubmitScore(name, window.__rzLastScore||0);
+    document.getElementById('game-submit-btn').textContent = '✅ ثبت شد';
+  });
+
+  resizeCanvas(); resetGame(); draw();
+  requestAnimationFrame(loopGame);
+})();
+
+/* ============ leaderboard panel wiring ============ */
+const lbOverlay = document.getElementById('lb-overlay');
+const lbBtn = document.getElementById('lb-btn');
+const lbClose = document.getElementById('lb-close');
+const lbUsernameInput = document.getElementById('lb-username-input');
+const lbSubmitBtn = document.getElementById('lb-submit-btn');
+const lbStatus = document.getElementById('lb-status');
+
+lbUsernameInput.value = localStorage.getItem('rz_username') || '';
+lbBtn.addEventListener('click', ()=>{
+  lbOverlay.classList.add('show');
+  if(window.__rzWatchLeaderboard) window.__rzWatchLeaderboard();
+});
+lbClose.addEventListener('click', ()=>lbOverlay.classList.remove('show'));
+lbOverlay.addEventListener('click', (e)=>{ if(e.target===lbOverlay) lbOverlay.classList.remove('show'); });
+
+lbSubmitBtn.addEventListener('click', ()=>{
+  const name = lbUsernameInput.value.trim();
+  if(!name){ lbStatus.textContent = 'اول یه یوزرنیم بزن.'; return; }
+  localStorage.setItem('rz_username', name);
+  const best = parseInt(localStorage.getItem('rz_runner_best')||'0');
+  if(!best){ lbStatus.textContent = 'اول یه بار بازی «فرار بی‌پایان» رو انجام بده.'; return; }
+  lbStatus.textContent = 'در حال ثبت…';
+  if(window.__rzSubmitScore) window.__rzSubmitScore(name, best);
+  playTapSound();
+});
+
+/* ============ first-visit username modal ============ */
+const nameModalOverlay = document.getElementById('name-modal-overlay');
+const nameModalInput = document.getElementById('name-modal-input');
+const nameModalSave = document.getElementById('name-modal-save');
+if(!localStorage.getItem('rz_username')){
+  setTimeout(()=>nameModalOverlay.classList.add('show'), 4000);
+}
+nameModalSave.addEventListener('click', ()=>{
+  const name = nameModalInput.value.trim();
+  if(name){ localStorage.setItem('rz_username', name); lbUsernameInput.value = name; }
+  nameModalOverlay.classList.remove('show');
+});
+
+/* ============ share card ============ */
+const shareBtn = document.getElementById('share-btn');
+shareBtn.addEventListener('click', async ()=>{
+  playTapSound();
+  const node = document.getElementById('share-card');
+  node.style.top = '0px'; node.style.left = '0px'; node.style.zIndex = '-1'; node.style.position='fixed'; node.style.opacity='0.01';
+  try{
+    const canvas = await html2canvas(node, { backgroundColor:null, scale:2 });
+    node.style.top = '-9999px'; node.style.left='-9999px'; node.style.opacity='1';
+    canvas.toBlob(async (blob)=>{
+      const file = new File([blob], 'roozshomar.png', { type:'image/png' });
+      if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
+        try{ await navigator.share({ files:[file], title:'روزشمار مدرسه', text:'روزشمار من تا شروع مدرسه 😈' }); }
+        catch(e){}
+      }else{
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'roozshomar.png'; a.click();
+        URL.revokeObjectURL(url);
+      }
+    });
+  }catch(e){
+    node.style.top = '-9999px'; node.style.left='-9999px'; node.style.opacity='1';
+    console.error(e);
+  }
+});
+</script>
+</body>
+</html>
