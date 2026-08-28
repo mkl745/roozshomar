@@ -1,94 +1,84 @@
-/* ------------------------------------------------------------------ *
- *  AudioManager — Web Audio API.                                     *
- *  Decoded AudioBuffers + AudioBufferSourceNode(loop) for            *
- *  sample-accurate looping; GainNode setTargetAtTime crossfades      *
- *  (no <audio loop> gap issues). pause/resume via context suspend.   *
- * ------------------------------------------------------------------ */
-
+// AudioManager — Web Audio API with decoded buffers + GainNodes.
+// Looping is sample-accurate (AudioBufferSourceNode.loop), crossfades are
+// GainNode ramps on the context clock. At most the current + fading-out track
+// are held decoded, so memory stays bounded.
 export class AudioManager {
   constructor() {
     this.ctx = null;
     this.master = null;
-    this.cache = new Map();       // name -> AudioBuffer
-    this.urls = new Map();        // name -> url
-    this.current = null;          // { name, src, gain, startAt, offset }
-    this.muted = false;
-    this._vol = 0.9;
+    this.current = null;          // {name, buffer, src, gain, startAt}
+    this._cache = new Map();
+    this.paused = false;
+    this.onTrackChange = null;    // (name) => void
   }
 
-  register(name, url) { this.urls.set(name, url); }
-
-  async init() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') await this.ctx.resume(); return; }
-    const AC = window.AudioContext || window.webkitAudioContext;
-    this.ctx = new AC();
-    const comp = this.ctx.createDynamicsCompressor();
-    comp.threshold.value = -18; comp.ratio.value = 3;
-    this.master = this.ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : this._vol;
-    this.master.connect(comp); comp.connect(this.ctx.destination);
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
-  }
-
-  async loadBuffer(name) {
-    if (this.cache.has(name)) return this.cache.get(name);
-    const url = this.urls.get(name);
-    if (!url) throw new Error('unknown track ' + name);
-    const buf = await (await fetch(url)).arrayBuffer();
-    const decoded = await this.ctx.decodeAudioData(buf);
-    this.cache.set(name, decoded);
-    return decoded;
-  }
-
-  get currentName() { return this.current ? this.current.name : null; }
-  get isPlaying() { return !!(this.current && this.ctx && this.ctx.state === 'running'); }
-  get duration() { return this.current ? this.current.buffer.duration : 0; }
-  get currentTime() {
-    if (!this.current) return 0;
-    const c = this.current;
-    return (c.offset + (this.ctx.currentTime - c.startAt)) % c.buffer.duration;
-  }
-
-  /** Play/switch track with smooth crossfade. */
-  async play(name, { fade = 1.6, offset = 0 } = {}) {
-    await this.init();
-    if (this.currentName === name) return;
-    const buffer = await this.loadBuffer(name);
-    const t = this.ctx.currentTime;
-
-    // fade old out, stop it
-    if (this.current) {
-      const old = this.current;
-      old.gain.gain.setTargetAtTime(0, t, fade / 3);
-      try { old.src.stop(t + fade * 1.5); } catch (e) {}
-      this.current = null;
+  ensure() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.9;
+      this.master.connect(this.ctx.destination);
     }
+    if (this.ctx.state === 'suspended' && !this.paused) this.ctx.resume();
+  }
 
+  async _decode(name) {
+    if (this._cache.has(name)) return this._cache.get(name);
+    const res = await fetch(`music/${name}.mp3`);
+    const bytes = await res.arrayBuffer();
+    const buffer = await this.ctx.decodeAudioData(bytes);
+    this._cache.set(name, buffer);
+    return buffer;
+  }
+
+  get trackName() { return this.current ? this.current.name : null; }
+  get duration() { return this.current ? this.current.buffer.duration : 0; }
+  // ctx.currentTime freezes while suspended, so this freezes cleanly on pause.
+  get currentTime() {
+    if (!this.current || !this.ctx) return 0;
+    return (this.ctx.currentTime - this.current.startAt) % this.current.buffer.duration;
+  }
+
+  // Play a track, crossfading out whatever is running.
+  async play(name, fade = 2.0) {
+    this.ensure();
+    const buffer = await this._decode(name);
+    const t = this.ctx.currentTime;
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
-    src.loop = true;                       // buffer loop = gapless
+    src.loop = true;
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.setTargetAtTime(1, t + 0.05, fade / 3);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.setTargetAtTime(1, t, fade / 3);
     src.connect(gain); gain.connect(this.master);
-    src.start(t, offset % buffer.duration);
-
-    this.current = { name, src, gain, buffer, startAt: t, offset: offset % buffer.duration };
+    src.start(t);
+    const old = this.current;
+    this.current = { name, buffer, src, gain, startAt: t };
+    if (old) {
+      old.gain.gain.setTargetAtTime(0.0001, t, fade / 3);
+      old.src.stop(t + fade * 1.6 + 0.25);
+    }
+    if (this.onTrackChange) this.onTrackChange(name);
+    return this.current;
   }
 
-  stop({ fade = 0.8 } = {}) {
-    if (!this.current || !this.ctx) return;
-    const t = this.ctx.currentTime, old = this.current;
-    old.gain.gain.setTargetAtTime(0, t, fade / 3);
-    try { old.src.stop(t + fade * 1.5); } catch (e) {}
-    this.current = null;
+  crossfade(name, fade = 2.2) { return this.play(name, fade); }
+
+  async pause() {
+    if (!this.ctx || this.paused) return;
+    this.paused = true;
+    this.master.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.08);
+    await new Promise((r) => setTimeout(r, 250));
+    if (this.paused) await this.ctx.suspend();
   }
 
-  async pause() { if (this.ctx && this.ctx.state === 'running') await this.ctx.suspend(); }
-  async resume() { if (this.ctx && this.ctx.state === 'suspended') await this.ctx.resume(); }
-
-  setMuted(m) {
-    this.muted = m;
-    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : this._vol, this.ctx.currentTime, 0.08);
+  async resume() {
+    if (!this.ctx || !this.paused) return;
+    this.paused = false;
+    await this.ctx.resume();
+    this.master.gain.setTargetAtTime(0.9, this.ctx.currentTime, 0.25);
   }
 }
+
+export const audio = new AudioManager();

@@ -1,109 +1,107 @@
-/* ------------------------------------------------------------------ *
- *  Waveform-reactive visuals utility.                                *
- *  Loads a waveform JPG (cyan trace on dark bg), scans each pixel    *
- *  column for the trace envelope and stores a 0..1 intensity curve.  *
- *  getAudioIntensity() then maps the playing track's currentTime /   *
- *  duration onto that curve (with attack/release smoothing) so       *
- *  chapters can drive particles, light pulses and camera shake.      *
- * ------------------------------------------------------------------ */
-import { clamp, lerp, approach } from './util.js';
+// Waveform-reactive visuals utility.
+//
+// A waveform JPG is a mirrored trace (mint on maroon). At load time we scan it
+// once into a per-column 0..1 intensity array (vertical trace extent / height),
+// so per-frame cost is a single lerped array lookup. The mint-vs-maroon rule
+// (g > r + 30 && g > 120) also rejects the white timestamp text and UI blobs.
+//
+// Exposes getAudioIntensity(currentTime, duration) -> smoothed 0..1, and with no
+// arguments samples the currently-playing track via the linked AudioManager.
+import { clamp, lerp } from './util.js';
 
-const MARGIN_X = 0.015;   // ignore left ruler / right button UI of the jpgs
-const MARGIN_TOP = 0.06;
+function loadImage(url) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = url;
+  });
+}
 
 export class WaveformSampler {
-  constructor(url) { this.url = url; this.ready = false; }
-
-  async load() {
-    if (this.ready) return this;
-    const img = await new Promise((res, rej) => {
-      const i = new Image();
-      i.onload = () => res(i);
-      i.onerror = rej;
-      i.src = this.url;
-    });
-    const w = this.w = img.naturalWidth, h = this.h = img.naturalHeight;
-    const cv = document.createElement('canvas');
-    cv.width = w; cv.height = h;
-    const c = cv.getContext('2d', { willReadFrequently: true });
-    c.drawImage(img, 0, 0);
-    const data = c.getImageData(0, 0, w, h).data;
-
-    const env = new Float32Array(w);
-    const x0 = Math.floor(w * MARGIN_X), x1 = Math.ceil(w * (1 - MARGIN_X));
-    const y0 = Math.floor(h * MARGIN_TOP);
-    for (let x = x0; x < x1; x++) {
-      let minY = -1, maxY = -1;
-      for (let y = y0; y < h; y++) {
-        const o = (y * w + x) * 4;
-        const r = data[o], g = data[o + 1], b = data[o + 2];
-        // cyan/mint trace: green dominant over red, bright
-        if (g > 110 && g - r > 36 && g - b > 10) {
-          if (minY < 0) minY = y;
-          maxY = y;
-        }
-      }
-      env[x] = minY < 0 ? 0 : (maxY - minY + 1) / h;
-    }
-    // adaptive normalize against the 98th percentile peak
-    const sorted = Array.from(env).sort((a, b) => a - b);
-    const peak = Math.max(0.08, sorted[Math.floor(sorted.length * 0.98)]);
-    // moving-average smooth (5 columns) + perceptual gamma
-    const sm = this.curve = new Float32Array(w);
-    for (let x = 0; x < w; x++) {
-      let s = 0, n = 0;
-      for (let k = -2; k <= 2; k++) { const xx = x + k; if (xx >= 0 && xx < w) { s += env[xx]; n++; } }
-      sm[x] = Math.pow(clamp(s / n / peak, 0, 1), 0.85);
-    }
-    this.ready = true;
-    return this;
-  }
-
-  /** Raw 0..1 intensity at normalized time u in [0,1]. */
-  sampleNorm(u) {
-    if (!this.ready) return 0;
-    const x = clamp(u, 0, 1) * (this.w - 1);
-    const i = Math.floor(x), f = x - i;
-    return lerp(this.curve[i], this.curve[Math.min(i + 1, this.w - 1)], f);
-  }
-}
-
-class WaveformReactor {
   constructor() {
-    this.samplers = new Map();   // track name -> WaveformSampler
-    this.audio = null;
-    this.value = 0;              // smoothed intensity, current track
+    this.trace = null;      // Float32Array, 0..1 per pixel column
+    this.width = 0;
+    this.url = null;
+    this.smooth = 0;        // attack/release-smoothed value
+    this._lastCall = 0;
+    this._audio = null;
   }
-  register(trackName, url) { this.samplers.set(trackName, new WaveformSampler(url)); }
-  bindAudio(audioManager) { this.audio = audioManager; }
-  async preload(trackName) {
-    const s = this.samplers.get(trackName);
-    if (s) await s.load();
-  }
-  async preloadAll() { for (const s of this.samplers.values()) await s.load().catch(() => {}); }
 
-  /** Per-frame update: follows the playing track with attack/release. */
-  update(dt) {
-    const a = this.audio;
-    let target = 0;
-    if (a && a.isPlaying && a.currentName) {
-      const s = this.samplers.get(a.currentName);
-      if (s && s.ready) target = s.sampleNorm(a.currentTime / a.duration);
+  // Lets getAudioIntensity() work with no arguments.
+  link(audioManager) { this._audio = audioManager; }
+
+  async load(url) {
+    if (this.url === url && this.trace) return true;
+    try {
+      const img = await loadImage(url);
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const cx = c.getContext('2d', { willReadFrequently: true });
+      cx.drawImage(img, 0, 0);
+      const d = cx.getImageData(0, 0, w, h).data;
+      const raw = new Float32Array(w);
+      for (let x = 0; x < w; x++) {
+        let minY = 1e9, maxY = -1;
+        for (let y = 0; y < h; y++) {
+          const i = (y * w + x) * 4;
+          const r = d[i], g = d[i + 1];
+          if (g > r + 30 && g > 120) {           // mint trace, not text/blobs
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+        raw[x] = maxY >= 0 ? (maxY - minY + 1) / h : 0;
+      }
+      // 3-tap smooth across columns, then normalize so the 95th percentile ~0.92
+      const tr = new Float32Array(w);
+      for (let x = 0; x < w; x++) {
+        tr[x] = (raw[Math.max(0, x - 1)] + 2 * raw[x] + raw[Math.min(w - 1, x + 1)]) * 0.25;
+      }
+      const sorted = Array.from(tr).sort((a, b) => a - b);
+      const p95 = sorted[Math.floor(w * 0.95)] || 1;
+      const scale = 0.92 / Math.max(1e-4, p95);
+      for (let x = 0; x < w; x++) tr[x] = clamp(tr[x] * scale, 0, 1);
+      this.trace = tr; this.width = w; this.url = url;
+      return true;
+    } catch (e) {
+      console.warn('[waveform] load failed', url, e);
+      return false;
     }
-    const rate = target > this.value ? 34 : 6.5;   // fast attack, slow release
-    this.value = approach(this.value, target, rate, dt);
   }
 
-  getAudioIntensity() { return this.value; }
+  // Unsmoothed 0..1 at a track time.
+  rawAt(time, duration) {
+    if (!this.trace || !(duration > 0)) return 0;
+    const x = clamp(time / duration, 0, 0.9999) * (this.width - 1);
+    const i = Math.floor(x);
+    return lerp(this.trace[i], this.trace[Math.min(i + 1, this.width - 1)], x - i);
+  }
 
-  /** Explicit form: intensity of `trackName` at (t, duration). */
-  intensityAt(trackName, t, duration) {
-    const s = this.samplers.get(trackName);
-    return s ? s.sampleNorm(duration > 0 ? t / duration : 0) : 0;
+  // Average energy over the next `seconds` of the track (anticipation visuals).
+  upcoming(time, duration, seconds = 1.5) {
+    if (!this.trace || !(duration > 0)) return 0;
+    const x0 = clamp(time / duration, 0, 1) * (this.width - 1);
+    const x1 = clamp((time + seconds) / duration, 0, 1) * (this.width - 1);
+    const a = Math.floor(x0), b = Math.max(a + 1, Math.floor(x1));
+    let s = 0;
+    for (let x = a; x < b; x++) s += this.trace[x];
+    return s / (b - a);
+  }
+
+  // THE api. Smoothed (fast attack, slow musical release) 0..1 intensity.
+  getAudioIntensity(time, duration, dt) {
+    let t = time, d = duration;
+    if (t === undefined && this._audio) { t = this._audio.currentTime; d = this._audio.duration || 1; }
+    const v = this.rawAt(t, d);
+    const now = performance.now() / 1000;
+    const ddt = dt !== undefined ? dt : clamp(now - (this._lastCall || now), 0, 0.1);
+    this._lastCall = now;
+    const rate = v > this.smooth ? 18 : 6.5;
+    this.smooth += (v - this.smooth) * (1 - Math.exp(-rate * ddt));
+    return this.smooth;
   }
 }
 
-export const reactor = new WaveformReactor();
-
-/** The public hook chapters use for audio-reactive visuals. */
-export function getAudioIntensity() { return reactor.getAudioIntensity(); }
+export const waveform = new WaveformSampler();

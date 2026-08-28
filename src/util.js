@@ -1,25 +1,20 @@
-/* ------------------------------------------------------------------ *
- *  roozshomar narrative platformer — shared math / misc helpers      *
- * ------------------------------------------------------------------ */
-
+// roozshomar platformer engine — shared math / color / canvas helpers.
 export const TAU = Math.PI * 2;
 
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-export const lerp  = (a, b, t) => a + (b - a) * t;
+export const lerp = (a, b, t) => a + (b - a) * t;
 
-export const smoothstep = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
-export const easeOutCubic = (t) => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
-export const easeOutBack = (t) => {
-  t = clamp(t, 0, 1);
-  const c1 = 1.70158, c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+// Framerate-independent exponential approach (the workhorse of "soft" feel).
+export const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
+
+export const smoothstep = (a, b, t) => {
+  const x = clamp((t - a) / (b - a), 0, 1);
+  return x * x * (3 - 2 * x);
 };
 
-/** Frame-rate independent exponential approach: cur -> target at `rate` (1/s). */
-export const approach = (cur, target, rate, dt) =>
-  cur + (target - cur) * (1 - Math.exp(-rate * dt));
+export const easeOutCubic = (t) => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
 
-/** Deterministic PRNG (mulberry32). Returns () => [0,1). */
+// Deterministic PRNG for procedural terrain / stars.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -30,52 +25,53 @@ export function mulberry32(seed) {
   };
 }
 
-const hash1 = (i, seed) => {
-  let h = Math.sin(i * 127.1 + seed * 311.7) * 43758.5453123;
-  return h - Math.floor(h);
-};
-
-/** 1-D value noise, smooth (quintic) interpolation, range ~[0,1]. */
-export function makeNoise1D(seed) {
-  return function noise(x) {
-    const i = Math.floor(x), f = x - i;
-    const u = f * f * f * (f * (f * 6 - 15) + 10);
-    return lerp(hash1(i, seed), hash1(i + 1, seed), u);
-  };
-}
-
-/** Fractal value noise, `octaves` layers, range ~[0,1]. */
-export function makeFbm1D(seed, octaves = 3) {
-  const layers = [];
-  for (let o = 0; o < octaves; o++) layers.push(makeNoise1D(seed + o * 101.3));
-  return function fbm(x) {
-    let amp = 0.5, freq = 1, sum = 0, norm = 0;
-    for (let o = 0; o < octaves; o++) {
-      sum += layers[o](x * freq) * amp;
-      norm += amp; amp *= 0.5; freq *= 2.03;
-    }
-    return sum / norm;
-  };
-}
-
-/** Cheap 2-ish-D hash noise for star twinkle etc. */
-export const hash2 = (x, y, seed) => {
-  let h = Math.sin(x * 127.1 + y * 269.5 + seed * 311.7) * 43758.5453123;
-  return h - Math.floor(h);
-};
-
-/** RGBA hex '#rrggbb' -> {r,g,b}. */
 export function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
-export const rgba = (hex, a) => {
-  const { r, g, b } = hexToRgb(hex);
-  return `rgba(${r},${g},${b},${a})`;
-};
 
-/** Lerp between two hex colors, returns 'rgb(r,g,b)'. */
-export function mixHex(h1, h2, t) {
-  const a = hexToRgb(h1), b = hexToRgb(h2);
-  return `rgb(${Math.round(lerp(a.r, b.r, t))},${Math.round(lerp(a.g, b.g, t))},${Math.round(lerp(a.b, b.b, t))})`;
+export const rgb = (c, a = 1) =>
+  `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+
+export const mixRgb = (a, b, t) => [
+  lerp(a[0], b[0], t),
+  lerp(a[1], b[1], t),
+  lerp(a[2], b[2], t),
+];
+
+export function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
+  return c;
+}
+
+// '#rrggbb' -> [r,g,b] recursively, leaving numbers untouched.
+export function deepColorize(o) {
+  if (Array.isArray(o)) return o.map(deepColorize);
+  if (o && typeof o === 'object') {
+    const r = {};
+    for (const k in o) r[k] = deepColorize(o[k]);
+    return r;
+  }
+  if (typeof o === 'string' && o[0] === '#') return hexToRgb(o);
+  return o;
+}
+
+// Mutates `cur` toward `tgt` by t (same shape; arrays of numbers = colors/vectors).
+export function deepMix(cur, tgt, t) {
+  for (const k in tgt) {
+    const b = tgt[k];
+    const a = cur[k];
+    if (Array.isArray(b) && typeof b[0] === 'number') {
+      for (let i = 0; i < b.length; i++) a[i] = lerp(a[i], b[i], t);
+    } else if (typeof b === 'number') {
+      cur[k] = lerp(a, b, t);
+    } else if (b && typeof b === 'object') {
+      deepMix(a, b, t);
+    }
+  }
+  return cur;
 }

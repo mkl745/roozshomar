@@ -1,221 +1,164 @@
-/* ------------------------------------------------------------------ *
- *  Reusable parallax / environment renderer.                         *
- *  Fully driven by a config data object (see scene_test.js):         *
- *  painterly multi-stop sky, stars, celestial body + glow,           *
- *  N seeded silhouette layers (ridges / spires) with parallax,       *
- *  drifting fog bands, and a color-grade pass (tint + vignette).     *
- * ------------------------------------------------------------------ */
-import { clamp, mulberry32, makeFbm1D, hash2, rgba, hexToRgb, TAU } from './util.js';
+// Reusable parallax / environment renderer, fully data-driven.
+// configure({sun, layers:[geometry], mood}) — geometry is fixed per scene,
+// colors live in a "mood" object that setMood() retargets; the current palette
+// eases toward the target every frame so grading shifts smoothly with mood.
+//
+// Mood shape (identical across moods so values can lerp):
+//   sky:[5], sun:{color,alpha}, stars:n, haze, layers:[6], ground,
+//   tint, tintAmt, ambient:{color,darkness}, rim, scarf, shake
+import { mulberry32, TAU, clamp, rgb, mixRgb, makeCanvas, deepColorize, deepMix } from './util.js';
 
-export class ParallaxEnvironment {
-  constructor(cfg) {
-    this.cfg = cfg || {};
-    this.tiles = [];
+const TILE = 2400;                 // layer-space period (harmonics are integer freqs of this)
+const FREQS = [2, 3, 5, 8, 13];
+const AMPS = [0.42, 0.28, 0.22, 0.16, 0.10];
+
+export class Environment {
+  constructor() {
+    this.sun = { x: 0.7, y: 0.3, r: 46 };
+    this.layers = [];
+    this.cur = null; this.target = null;
     this.stars = [];
-    this.w = 0; this.h = 0; this.s = 1;
-    this.skyGrad = null;
-    this._buildStars();
   }
 
-  _buildStars() {
-    const st = this.cfg.stars;
-    this.stars = [];
-    if (!st) return;
-    const rnd = mulberry32(st.seed ?? 7);
-    for (let i = 0; i < (st.count ?? 120); i++) {
-      this.stars.push({
-        x: rnd(), y: rnd() * 0.72,
-        r: (st.size?.[0] ?? 0.5) + rnd() * ((st.size?.[1] ?? 1.5) - (st.size?.[0] ?? 0.5)),
-        ph: rnd() * TAU, sp: 0.5 + rnd() * 1.6,
-      });
-    }
-  }
-
-  resize(w, h, dpr) {
-    this.w = w; this.h = h;
-    this.s = clamp(dpr, 1, 2);
-    this.skyGrad = null;
-    this.tiles = [];
-    const layers = this.cfg.layers || [];
-    for (const L of layers) this.tiles.push(this._renderTile(L));
-  }
-
-  /* ---------- layer tile pre-render ---------- */
-  _renderTile(L) {
-    const tileW = 1500;
-    const cv = document.createElement('canvas');
-    cv.width = Math.ceil(tileW * this.s);
-    cv.height = Math.ceil(this.h * this.s);
-    const c = cv.getContext('2d');
-    c.scale(this.s, this.s);
-
-    const fbm = makeFbm1D(L.seed ?? 1, L.octaves ?? 3);
-    const base = (L.base ?? 0.6) * this.h;
-    const amp = L.amp ?? 60;
-    const freq = L.freq ?? 0.006;
-
-    // ridge path
-    c.fillStyle = L.color;
-    c.beginPath();
-    c.moveTo(0, this.h + 4);
-    const step = 3;
-    for (let x = 0; x <= tileW; x += step) {
-      let y = base - fbm(x * freq + (L.seedOff ?? 0)) * amp - (fbm(x * freq * 3.7 + 40) - 0.5) * amp * 0.35;
-      c.lineTo(x, y);
-    }
-    c.lineTo(tileW, this.h + 4);
-    c.closePath();
-    c.fill();
-
-    // spires / trees / ruins silhouettes on the ridge
-    if (L.kind === 'spires' || L.spikes) {
-      const sp = L.spikes || {};
-      const gap = sp.gap ?? 130, rnd = mulberry32((L.seed ?? 1) * 77 + 5);
-      const cells = Math.ceil(tileW / gap);
-      const heights = [];
-      for (let i = 0; i <= cells; i++) heights.push(rnd());
-      c.beginPath();
-      for (let i = 0; i < cells; i++) {
-        const r = heights[i];
-        if (r < (sp.density ?? 0.45)) continue;
-        const cx = i * gap + gap * (0.25 + 0.5 * heights[(i + 3) % cells]);
-        const hh = (sp.h ?? 90) * (0.45 + 0.8 * heights[(i + 11) % cells]);
-        const ww = (sp.w ?? 26) * (0.6 + 0.7 * r);
-        const gy = base - fbm(cx * freq + (L.seedOff ?? 0)) * amp + 6;
-        if (sp.style === 'tree') {
-          // cypress-like: thin trunk + flame crown
-          c.moveTo(cx - 2, gy); c.lineTo(cx - 2, gy - hh * 0.4);
-          c.quadraticCurveTo(cx - ww * 0.5, gy - hh * 0.62, cx, gy - hh);
-          c.quadraticCurveTo(cx + ww * 0.5, gy - hh * 0.62, cx + 2, gy - hh * 0.4);
-          c.lineTo(cx + 2, gy);
-        } else if (sp.style === 'ruin') {
-          // broken column / arch fragment
-          c.rect(cx - ww / 2, gy - hh, ww, hh + 4);
-          if (heights[(i + 7) % cells] > 0.5) c.rect(cx - ww * 1.1, gy - hh * 0.55, ww * 2.2, hh * 0.16);
-        } else {
-          c.moveTo(cx - ww, gy); c.lineTo(cx - ww * 0.12, gy - hh); c.lineTo(cx + ww, gy);
+  configure(cfg) {
+    this.sun = { ...this.sun, ...cfg.sun };
+    this.layers = cfg.layers.map((L, i) => {
+      const rnd = mulberry32(L.seed ?? i * 1013 + 7);
+      const comps = FREQS.map((f, k) => ({
+        f, a: AMPS[k] * (0.75 + rnd() * 0.5), p: rnd() * TAU,
+      }));
+      const features = [];
+      if (L.type === 'spires' || L.type === 'trees') {
+        const n = Math.floor(TILE / (L.type === 'spires' ? 260 : 130));
+        for (let j = 0; j < n; j++) {
+          features.push({
+            u: rnd() * TILE,
+            hgt: (L.type === 'spires' ? 90 : 26) * (0.5 + rnd()),
+            wid: (L.type === 'spires' ? 16 : 10) * (0.6 + rnd() * 0.8),
+          });
         }
       }
-      c.fill();
-    }
-    return { cv, tileW, parallax: L.parallax ?? 0.2, yOff: L.yOff ?? 0 };
+      return { type: 'ridge', ...L, comps, features };
+    });
+    const srnd = mulberry32(4242);
+    this.stars = Array.from({ length: 150 }, () => ({
+      fx: srnd(), fy: srnd() * 0.62, r: 0.6 + srnd() * 1.3,
+      sp: 0.5 + srnd() * 2.2, ph: srnd() * TAU,
+    }));
+    this.cur = deepColorize(cfg.mood);
+    this.target = deepColorize(cfg.mood);
   }
 
-  /* ---------- per-frame render ---------- */
-  render(ctx, camX, camY, w, h, t, intensity) {
-    const cfg = this.cfg;
+  setMood(mood) { this.target = deepColorize(mood); }
+  get mood() { return this.cur; }
 
-    // sky
-    if (!this.skyGrad) {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      for (const [p, col] of (cfg.sky?.stops ?? [[0, '#000'], [1, '#111']])) g.addColorStop(p, col);
-      this.skyGrad = g;
-    }
-    ctx.fillStyle = this.skyGrad;
+  update(dt) {
+    deepMix(this.cur, this.target, 1 - Math.exp(-1.7 * dt));
+  }
+
+  _ridge(L, u, h) {
+    let y = L.base * h;
+    for (const c of L.comps) y += Math.sin((TAU * u * c.f) / TILE + c.p) * c.a * L.amp;
+    return y;
+  }
+
+  render(ctx, engine, t) {
+    const { w, h } = engine;
+    const m = this.cur;
+    const cam = engine.cam;
+
+    // Painterly multi-stop sky. Stops sit high so the warm horizon band
+    // reads ABOVE the far ridge, not hidden behind it.
+    const sky = ctx.createLinearGradient(0, 0, 0, h * 1.02);
+    const pos = [0, 0.4, 0.55, 0.66, 0.78];
+    for (let i = 0; i < 5; i++) sky.addColorStop(pos[i], rgb(m.sky[i]));
+    ctx.fillStyle = sky;
     ctx.fillRect(0, 0, w, h);
 
-    // stars
-    if (this.stars.length) {
-      const par = cfg.stars.parallax ?? 0.05;
-      ctx.save();
+    // Sun / moon disc (+ glow goes to the bloom-fed glow buffer).
+    const sx = this.sun.x * w - cam.x * 0.02, sy = this.sun.y * h - cam.y * 0.02;
+    engine.lighting.screenGlow(sx, sy, this.sun.r * 5.6, m.sun.color, 0.8 * m.sun.alpha);
+    const disc = ctx.createRadialGradient(sx, sy, 0, sx, sy, this.sun.r);
+    disc.addColorStop(0, rgb(m.sun.color, 0.95 * m.sun.alpha));
+    disc.addColorStop(0.75, rgb(m.sun.color, 0.75 * m.sun.alpha));
+    disc.addColorStop(1, rgb(m.sun.color, 0));
+    ctx.fillStyle = disc;
+    ctx.beginPath(); ctx.arc(sx, sy, this.sun.r, 0, TAU); ctx.fill();
+
+    // Stars.
+    if (m.stars > 0.02) {
+      ctx.fillStyle = '#ffffff';
       for (const s of this.stars) {
-        let sx = (s.x * (w + 80) - camX * par) % (w + 80); if (sx < 0) sx += w + 80;
-        const sy = s.y * h - camY * par * 0.5;
         const tw = 0.35 + 0.65 * Math.pow(Math.sin(t * s.sp + s.ph) * 0.5 + 0.5, 2);
-        ctx.globalAlpha = tw * (0.55 + intensity * 0.45);
-        ctx.fillStyle = cfg.stars.color ?? '#e8ecff';
-        ctx.beginPath(); ctx.arc(sx - 40, sy, s.r, 0, TAU); ctx.fill();
+        ctx.globalAlpha = m.stars * tw * 0.8;
+        ctx.fillRect(s.fx * w, s.fy * h, s.r, s.r);
       }
-      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
-    // celestial body + glow
-    const cel = cfg.celestial;
-    if (cel) {
-      const cx = cel.x * w - camX * (cel.parallax ?? 0.03);
-      const cy = cel.y * h - camY * 0.02;
-      const gr = (cel.glowR ?? cel.r * 6) * (1 + intensity * 0.12);
-      const gcol = hexToRgb(cel.glowColor ?? cel.color ?? '#fff');
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, gr);
-      g.addColorStop(0, `rgba(${gcol.r},${gcol.g},${gcol.b},${0.5 + intensity * 0.15})`);
-      g.addColorStop(0.3, `rgba(${gcol.r},${gcol.g},${gcol.b},0.16)`);
-      g.addColorStop(1, `rgba(${gcol.r},${gcol.g},${gcol.b},0)`);
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(cx, cy, gr, 0, TAU); ctx.fill();
-      ctx.restore();
-      ctx.fillStyle = cel.color ?? '#fff';
-      ctx.beginPath(); ctx.arc(cx, cy, cel.r, 0, TAU); ctx.fill();
-      if (cel.craters) { // subtle moon shading
-        ctx.fillStyle = 'rgba(0,0,0,0.08)';
-        ctx.beginPath(); ctx.arc(cx - cel.r * 0.3, cy - cel.r * 0.15, cel.r * 0.28, 0, TAU); ctx.fill();
-        ctx.beginPath(); ctx.arc(cx + cel.r * 0.25, cy + cel.r * 0.3, cel.r * 0.18, 0, TAU); ctx.fill();
-      }
+    // Parallax silhouette layers, far -> near.
+    for (let i = 0; i < this.layers.length; i++) {
+      this._layer(ctx, this.layers[i], m.layers[i], m.haze, engine);
     }
 
-    // parallax layers far -> near, fog interleaved
-    const fogs = cfg.fog || [];
-    let fogIdx = 0;
-    this.tiles.forEach((tile, i) => {
-      const ox = -mod(camX * tile.parallax, tile.tileW);
-      const oy = -camY * tile.parallax * 0.35 + tile.yOff;
-      for (let x = ox; x < w; x += tile.tileW) {
-        ctx.drawImage(tile.cv, x, oy, tile.tileW, this.h);
-      }
-      // fog band that belongs behind this layer
-      const f = fogs[fogIdx];
-      if (f && (f.afterLayer ?? i) === i) { this._fog(ctx, f, camX, w, h, t); fogIdx++; }
-    });
-    while (fogIdx < fogs.length) { this._fog(ctx, fogs[fogIdx++], camX, w, h, t); }
+    // Horizon haze band.
+    const hz = ctx.createLinearGradient(0, h * 0.5, 0, h);
+    hz.addColorStop(0, rgb(m.haze, 0));
+    hz.addColorStop(0.6, rgb(m.haze, 0.10));
+    hz.addColorStop(1, rgb(m.haze, 0.20));
+    ctx.fillStyle = hz;
+    ctx.fillRect(0, h * 0.5, w, h * 0.5);
   }
 
-  _fog(ctx, f, camX, w, h, t) {
-    const y = (f.y ?? 0.6) * h;
-    const hh = f.h ?? 70;
-    const drift = (t * (f.speed ?? 6) + camX * (f.parallax ?? 0.25)) % (w * 2);
-    const col = hexToRgb(f.color ?? '#8a6a8f');
-    ctx.save();
-    for (let k = 0; k < 2; k++) {
-      const x0 = -drift - w * 0.5 + k * w * 1.2;
-      const g = ctx.createLinearGradient(0, y - hh, 0, y + hh);
-      g.addColorStop(0, `rgba(${col.r},${col.g},${col.b},0)`);
-      g.addColorStop(0.5, `rgba(${col.r},${col.g},${col.b},${f.alpha ?? 0.12})`);
-      g.addColorStop(1, `rgba(${col.r},${col.g},${col.b},0)`);
-      ctx.fillStyle = g;
+  _layer(ctx, L, color, haze, engine) {
+    const { w, h } = engine;
+    const cam = engine.cam;
+    const off = cam.x * L.parallax;
+    const yOff = (cam.y - 420) * L.parallax * 0.45;
+    const col = mixRgb(color, haze, clamp(L.fog, 0, 1) * 0.6);
+    ctx.fillStyle = rgb(col);
+
+    const k0 = Math.floor((off - 100) / TILE);
+    const k1 = Math.floor((off + w + 100) / TILE);
+    ctx.beginPath();
+    ctx.moveTo(-20, h + 60);
+    for (let k = k0; k <= k1; k++) {
+      const start = Math.max(0, k * TILE - off - 10);
+      const end = Math.min(w + 10, (k + 1) * TILE - off + 10);
+      for (let sxx = start; sxx <= end; sxx += 8) {
+        const u = sxx + off;
+        ctx.lineTo(sxx, this._ridge(L, u, h) + yOff);
+      }
+    }
+    ctx.lineTo(w + 20, h + 60);
+    ctx.closePath();
+    ctx.fill();
+
+    // Features (spires / conifers) riding on the ridge.
+    if (L.features.length) {
       ctx.beginPath();
-      ctx.ellipse(x0 + w * 0.6, y, w * 0.85, hh, 0, 0, TAU);
+      for (let k = k0; k <= k1; k++) {
+        for (const f of L.features) {
+          const u = k * TILE + f.u;
+          const sx = u - off;
+          if (sx < -60 || sx > w + 60) continue;
+          const y = this._ridge(L, u, h) + yOff + 6;
+          if (L.type === 'spires') {
+            ctx.moveTo(sx - f.wid, y);
+            ctx.lineTo(sx - f.wid * 0.2, y - f.hgt);
+            ctx.lineTo(sx + f.wid * 0.25, y - f.hgt * 0.86);
+            ctx.lineTo(sx + f.wid, y);
+          } else {
+            ctx.moveTo(sx - f.wid, y);
+            ctx.lineTo(sx, y - f.hgt * 1.7);
+            ctx.lineTo(sx + f.wid, y);
+            ctx.moveTo(sx - f.wid * 0.7, y - f.hgt * 0.8);
+            ctx.lineTo(sx, y - f.hgt * 2.3);
+            ctx.lineTo(sx + f.wid * 0.7, y - f.hgt * 0.8);
+          }
+        }
+      }
       ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  /* ---------- color grade: mood tint + vignette ---------- */
-  renderGrade(ctx, w, h, intensity) {
-    const g = this.cfg.grade;
-    if (!g) return;
-    if (g.tint) {
-      ctx.save();
-      ctx.globalCompositeOperation = g.mode ?? 'soft-light';
-      ctx.globalAlpha = (g.tintAlpha ?? 0.16) + (g.audioTint ?? 0) * intensity;
-      const lg = ctx.createLinearGradient(0, 0, 0, h);
-      lg.addColorStop(0, g.tint);
-      lg.addColorStop(1, g.tint2 ?? g.tint);
-      ctx.fillStyle = lg;
-      ctx.fillRect(0, 0, w, h);
-      ctx.restore();
-    }
-    if (g.vignette) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'multiply';
-      const v = ctx.createRadialGradient(w / 2, h * 0.52, Math.min(w, h) * 0.42, w / 2, h * 0.52, Math.max(w, h) * 0.78);
-      v.addColorStop(0, 'rgba(255,255,255,1)');
-      v.addColorStop(1, `rgba(${Math.round(255 * (1 - g.vignette))},${Math.round(255 * (1 - g.vignette * 0.95))},${Math.round(255 * (1 - g.vignette * 0.9))},1)`);
-      ctx.fillStyle = v;
-      ctx.fillRect(0, 0, w, h);
-      ctx.restore();
     }
   }
 }
-
-const mod = (a, n) => ((a % n) + n) % n;

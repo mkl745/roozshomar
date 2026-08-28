@@ -3,129 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>roozshomar · narrative platformer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,700;1,500&family=Vazirmatn:wght@400;600;800&display=swap" rel="stylesheet">
+<title>Roozshomar — Platformer Test Scene</title>
 <style>
-:root{ --gold:#d4a64a; --ink:#0b0813; --text:#f3efe7; --muted:#9aa3ad; --cyan:#7ff0d8; }
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;background:#05060d;color:var(--text);overflow:hidden;
-  font-family:'Cormorant Garamond',Georgia,serif;}
-body.fa{font-family:'Vazirmatn',system-ui,sans-serif;}
-button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;}
-
-#stage{position:fixed;inset:0;}
-#game{display:block;width:100%;height:100%;}
-
-#fade{position:fixed;inset:0;background:#020108;opacity:0;pointer-events:none;}
-
-/* ---------- HUD ---------- */
-#hud{position:fixed;top:14px;inset-inline-end:14px;display:none;gap:8px;align-items:center;z-index:20;}
-#hud.show{display:flex;}
-#hud button{width:38px;height:38px;border-radius:50%;border:1px solid rgba(212,166,74,.55);
-  background:rgba(10,8,19,.42);backdrop-filter:blur(6px);color:var(--gold);font-size:15px;
-  transition:transform .12s ease;}
-#hud button:active{transform:scale(.9);}
-#scene-label{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);
-  background:rgba(10,8,19,.42);padding:8px 12px;border-radius:20px;backdrop-filter:blur(6px);}
-#track-label{position:fixed;bottom:12px;inset-inline-start:14px;z-index:20;font-size:12px;
-  letter-spacing:.14em;color:var(--muted);text-transform:uppercase;opacity:.85;}
-
-/* ---------- toast ---------- */
-#toast{position:fixed;bottom:18%;left:50%;transform:translate(-50%,14px);z-index:25;
-  color:var(--cyan);letter-spacing:.3em;text-transform:uppercase;font-size:14px;
-  opacity:0;transition:opacity .4s ease,transform .4s ease;text-shadow:0 0 18px rgba(127,240,216,.6);}
-#toast.show{opacity:1;transform:translate(-50%,0);}
-
-/* ---------- debug ---------- */
-#debug{position:fixed;top:12px;inset-inline-start:12px;z-index:30;display:none;
-  background:rgba(4,6,12,.66);border:1px solid rgba(127,240,216,.25);border-radius:8px;
-  padding:10px 12px;backdrop-filter:blur(4px);direction:ltr;text-align:left;}
-#debug.show{display:block;}
-#debug pre{font:11px/1.55 ui-monospace,Menlo,monospace;color:#bfeee2;white-space:pre;}
-#dbg-bar{height:3px;width:0%;background:var(--cyan);border-radius:2px;margin-bottom:8px;
-  box-shadow:0 0 8px rgba(127,240,216,.8);}
-
-/* ---------- overlays ---------- */
-.overlay{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(120% 90% at 50% 30%, rgba(9,7,20,.42), rgba(3,2,9,.86));
-  backdrop-filter:blur(3px);transition:opacity .7s ease;}
-.overlay.hide{opacity:0;pointer-events:none;}
-.t-inner{display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center;padding:24px;}
-.eyebrow{font-size:clamp(11px,1.6vw,14px);letter-spacing:.34em;text-transform:uppercase;color:var(--muted);}
-.t-inner h1{font-size:clamp(44px,9vw,96px);font-weight:700;letter-spacing:.12em;color:var(--text);
-  text-shadow:0 0 34px rgba(212,166,74,.35);}
-body.fa .t-inner h1{letter-spacing:0;font-weight:800;}
-.play{width:86px;height:86px;border-radius:50%;border:2px solid var(--gold);
-  background:rgba(212,166,74,.14);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;
-  animation:pulse-ring 2.4s infinite;margin-top:6px;}
-.play .tri{width:0;height:0;border-top:14px solid transparent;border-bottom:14px solid transparent;
-  border-left:22px solid var(--gold);margin-left:6px;}
-body.fa .play .tri{border-left:none;border-right:22px solid var(--gold);margin-left:0;margin-right:6px;}
-@keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(212,166,74,.45);}70%{box-shadow:0 0 0 24px rgba(212,166,74,0);}100%{box-shadow:0 0 0 0 rgba(212,166,74,0);}}
-.hint{color:var(--muted);letter-spacing:.2em;text-transform:uppercase;font-size:12px;}
-.keys{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;color:var(--muted);
-  font-size:12px;opacity:.75;letter-spacing:.06em;}
-
-#ui-pause{opacity:0;pointer-events:none;transition:opacity .35s ease;}
-#ui-pause.show{opacity:1;pointer-events:auto;}
-#ui-pause h2{font-size:clamp(30px,6vw,54px);letter-spacing:.3em;text-transform:uppercase;color:var(--text);}
-#ui-pause button{margin-top:4px;padding:10px 30px;border:1px solid rgba(212,166,74,.6);border-radius:26px;
-  color:var(--gold);letter-spacing:.2em;text-transform:uppercase;font-size:13px;background:rgba(212,166,74,.08);}
-#ui-pause button:hover{background:rgba(212,166,74,.18);}
-
-/* ---------- touch controls ---------- */
-#touch{position:fixed;inset-inline:0;bottom:0;z-index:22;display:none;
-  justify-content:space-between;padding:0 18px calc(18px + env(safe-area-inset-bottom));pointer-events:none;}
-@media (pointer:coarse){ #touch.on{display:flex;} }
-#touch button{pointer-events:auto;width:74px;height:74px;border-radius:50%;
-  border:1.5px solid rgba(243,239,231,.35);background:rgba(10,8,19,.35);backdrop-filter:blur(4px);
-  color:rgba(243,239,231,.8);font-size:26px;display:flex;align-items:center;justify-content:center;
-  user-select:none;touch-action:none;}
-#touch button:active{background:rgba(212,166,74,.25);border-color:var(--gold);}
-.t-group{display:flex;gap:14px;}
-#t-jump{width:88px;height:88px;border-color:rgba(127,240,216,.45);color:var(--cyan);}
+  html, body { margin: 0; padding: 0; height: 100%; background: #05060a; overflow: hidden; }
+  canvas { display: block; }
+  .veil {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(20,14,40,0.82), rgba(4,5,10,0.94));
+    backdrop-filter: blur(6px); transition: opacity 0.7s ease; z-index: 5;
+    font-family: system-ui, sans-serif; color: #e8e2f2; text-align: center; cursor: pointer;
+  }
+  .veil.gone { opacity: 0; pointer-events: none; }
+  .veil h1 { font-weight: 200; letter-spacing: 0.42em; font-size: 30px; margin: 0 0 10px; text-indent: 0.42em; }
+  .veil p { font-weight: 300; font-size: 13px; opacity: 0.62; margin: 4px 0; letter-spacing: 0.08em; }
+  .veil .hint { margin-top: 26px; opacity: 0.9; animation: pulse 2.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+  #paused { opacity: 0; pointer-events: none; cursor: default; }
+  #paused.show { opacity: 1; }
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="game"></canvas></div>
-<div id="fade"></div>
-
-<div id="hud">
-  <span id="scene-label"></span>
-  <button id="pause-btn" title="pause">Ⅱ</button>
-  <button id="mute-btn" title="mute">♪</button>
-  <button id="lang-btn" title="language">FA</button>
-</div>
-<div id="track-label"></div>
-<div id="toast"></div>
-
-<div id="debug"><div id="dbg-bar"></div><pre id="dbg-text"></pre></div>
-
-<div id="touch"><div class="t-group"><button id="t-left">‹</button><button id="t-right">›</button></div><button id="t-jump">⌃</button></div>
-
-<div id="ui-title" class="overlay">
-  <div class="t-inner">
-    <div class="eyebrow" data-i18n="tagline"></div>
-    <h1 data-i18n="title"></h1>
-    <button id="start-btn" class="play" aria-label="start"><span class="tri"></span></button>
-    <div class="hint" data-i18n="hintStart"></div>
-    <div class="keys">
-      <span data-i18n="hintMove"></span><span>·</span>
-      <span data-i18n="hintJump"></span><span>·</span>
-      <span data-i18n="hintScene"></span>
-    </div>
+<canvas id="game"></canvas>
+<div id="overlay" class="veil">
+  <div>
+    <h1>ROOZSHOMAR</h1>
+    <p>narrative platformer · engine test scene</p>
+    <p>movement · lighting · parallax · waveform-reactive audio</p>
+    <p class="hint">click or press space to begin</p>
   </div>
 </div>
-
-<div id="ui-pause" class="overlay">
-  <div class="t-inner">
-    <h2 data-i18n="paused"></h2>
-    <button id="resume-btn" data-i18n="resume"></button>
-    <button id="restart-btn" data-i18n="restart"></button>
+<div id="paused" class="veil">
+  <div>
+    <h1>PAUSED</h1>
+    <p class="hint">press P or Esc to resume</p>
   </div>
 </div>
-
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

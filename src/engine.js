@@ -1,287 +1,280 @@
-/* ------------------------------------------------------------------ *
- *  Core engine: fixed-timestep loop, high-DPI canvas, chapter state  *
- *  machine, checkpoints / respawn, pause-resume, camera with audio   *
- *  micro-shake, and the render pipeline that composes environment,   *
- *  world, character, particles, lighting and grade.                  *
- * ------------------------------------------------------------------ */
-import { clamp, approach, lerp, rgba, hexToRgb } from './util.js';
-import { Character } from './character.js';
+// Core engine: fixed-step loop, high-DPI canvas, chapter state machine,
+// checkpoints, pause/resume, camera with audio-driven micro-shake, and the
+// compositing pipeline (env -> world -> darkness -> glow -> bloom -> grade).
 import { Input } from './input.js';
-import { ParticleSystem } from './particles.js';
+import { audio } from './audio.js';
+import { waveform } from './waveform.js';
 import { LightingSystem } from './lighting.js';
-import { ParallaxEnvironment } from './environment.js';
-import { CharacterRenderer } from './character_draw.js';
-import { getAudioIntensity, reactor } from './waveform.js';
+import { Environment } from './environment.js';
+import { Particles } from './particles.js';
+import { Player } from './player.js';
+import { makeCanvas, clamp, damp, rgb, TAU } from './util.js';
 
-export const STEP = 1 / 120;
+const STEP = 1 / 120;
 
 export class Engine {
-  constructor(canvas, { audio, fadeEl } = {}) {
+  constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.audio = audio;
-    this.fadeEl = fadeEl;
     this.input = new Input();
-    this.particles = new ParticleSystem();
+    this.env = new Environment();
     this.lighting = new LightingSystem();
-    this.charDraw = new CharacterRenderer(this.lighting);
+    this.particles = new Particles();
+    this.player = new Player(this);
 
-    this.state = 'title';              // title | playing | paused | respawn
-    this.chapter = null;
-    this.char = null;
     this.solids = [];
     this.checkpoints = [];
-    this.activeCp = 0;
-    this.cam = { x: 0, y: 0 };
+    this.bounds = null;
+    this.chapters = {};
+    this.chapter = null;
+
+    this.state = 'boot';            // boot | ready | playing | paused
     this.time = 0;
-    this.acc = 0;
-    this.last = 0;
-    this.w = 0; this.h = 0; this.dpr = 1;
-    this.fps = 60; this._fpsN = 0; this._fpsT = 0;
-    this.respawnT = -1;
-    this.shakePh = Math.random() * 10;
-    this._raf = 0;
-    this.onEvent = null;               // (type, data) -> main/UI
+    this.fps = 60;
+    this.showFps = false;
+    this.audioIntensity = 0;
+    this.flash = 0;
+    this.kickV = 0;
+    this.cam = { x: 0, y: 0, sx: 0, sy: 0 };
+    this.onStateChange = null;
+
+    waveform.link(audio);
+    audio.onTrackChange = (name) => waveform.load(`waveform/${name}.jpg`);
+
+    this._last = 0; this._acc = 0;
+    addEventListener('resize', () => this.resize());
+    this.resize();
+    requestAnimationFrame((ts) => this._loop(ts));
   }
 
-  /* ---------------- lifecycle ---------------- */
   resize() {
-    const r = this.canvas.parentElement.getBoundingClientRect();
-    this.w = Math.max(320, r.width);
-    this.h = Math.max(240, r.height);
-    this.dpr = clamp(window.devicePixelRatio || 1, 1, 2);
-    this.canvas.width = Math.round(this.w * this.dpr);
-    this.canvas.height = Math.round(this.h * this.dpr);
-    this.canvas.style.width = this.w + 'px';
-    this.canvas.style.height = this.h + 'px';
-    if (this.env) this.env.resize(this.w, this.h, this.dpr);
-    this.lighting.resize(this.w, this.h);
+    const w = innerWidth, h = innerHeight;
+    this.dpr = clamp(devicePixelRatio || 1, 1, 2);
+    this.w = w; this.h = h;
+    this.canvas.width = Math.round(w * this.dpr);
+    this.canvas.height = Math.round(h * this.dpr);
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.lighting.resize(w, h);
+    this.bloom = makeCanvas(w / 4, h / 4);
+    this.bctx = this.bloom.getContext('2d');
   }
 
-  /** Chapter state machine: load a chapter definition object. */
-  loadChapter(def) {
+  registerChapter(name, def) { this.chapters[name] = def; }
+
+  loadChapter(name) {
+    const def = this.chapters[name];
     this.chapter = def;
-    this.env = new ParallaxEnvironment(def.environment);
-    this.env.resize(this.w, this.h, this.dpr);
-    this.lighting.configure(def.lighting);
-    this.lightDefs = def.lights || [];
-    this.solids = def.solids || [];
-    this.checkpoints = (def.checkpoints || []).map(c => ({ ...c, active: false }));
-    this.activeCp = 0;
-    if (this.checkpoints[0]) this.checkpoints[0].active = true;
-    this.killY = def.killY ?? 1200;
-    this.worldW = def.worldW ?? 3000;
-    this.char = new Character(def.spawn[0], def.spawn[1], def.feel);
-    this.particles.clear();
-    this.cam.x = this.char.x - this.w / 2;
-    this.cam.y = this.char.y - this.h * 0.62;
-    this.respawnT = -1;
+    this.chapterName = name;
+    def.setup(this);
+    const cp = this.checkpoints[0];
+    this.player.reset(cp.x, cp.y);
+    this._setState('ready');
   }
 
-  start() {
-    this.input.attach(window);
-    this.last = performance.now();
-    const loop = (t) => { this._raf = requestAnimationFrame(loop); this.frame(t); };
-    this._raf = requestAnimationFrame(loop);
+  start() { if (this.state === 'ready') this._setState('playing'); }
+
+  _setState(s) {
+    this.state = s;
+    if (this.onStateChange) this.onStateChange(s);
   }
-  destroy() { cancelAnimationFrame(this._raf); this.input.detach(); }
 
-  pause() { if (this.state === 'playing') { this.state = 'paused'; this.audio?.pause(); this.onEvent?.('pause'); } }
-  resume() { if (this.state === 'paused') { this.state = 'playing'; this.audio?.resume(); this.onEvent?.('resume'); } }
-  begin() { if (this.state === 'title') { this.state = 'playing'; this.onEvent?.('begin'); } }
+  togglePause() {
+    if (this.state === 'playing') { this._setState('paused'); audio.pause(); }
+    else if (this.state === 'paused') { this._setState('playing'); audio.resume(); }
+  }
 
-  /* ---------------- frame ---------------- */
-  frame(t) {
-    const dt = clamp((t - this.last) / 1000, 0, 0.25);
-    this.last = t;
-    this._fpsN++; this._fpsT += dt;
-    if (this._fpsT >= 0.5) { this.fps = Math.round(this._fpsN / this._fpsT); this._fpsN = 0; this._fpsT = 0; }
+  kick(amount) { this.kickV = Math.max(this.kickV, amount); }
 
-    if (this.state === 'playing' || this.state === 'respawn' || this.state === 'title') {
-      this.acc += dt;
-      let n = 0;
-      while (this.acc >= STEP && n < 10) { this.update(STEP); this.acc -= STEP; n++; }
-      if (n === 10) this.acc = 0;
+  respawn() {
+    const cp = this.checkpoints[this.checkpointIndex || 0];
+    this.player.reset(cp.x, cp.y);
+    this.flash = 0.7;
+    this.particles.spark(cp.x, cp.y - 30, 14, rgb(this.env.mood.rim));
+  }
+
+  // ------------------------------------------------------------------ loop
+  _loop(ts) {
+    requestAnimationFrame((t2) => this._loop(t2));
+    if (!this._last) this._last = ts;
+    const raw = (ts - this._last) / 1000;
+    this._last = ts;
+    const dt = clamp(raw, 0, 0.05);
+    if (raw > 0) this.fps = damp(this.fps, 1 / raw, 2, dt);
+
+    // global keys work in every state
+    if (this.input.pressed('pause') && (this.state === 'playing' || this.state === 'paused')) this.togglePause();
+    if (this.input.pressed('fps')) this.showFps = !this.showFps;
+
+    if (this.state === 'playing') {
+      this._acc += dt;
+      while (this._acc >= STEP) { this._update(STEP); this._acc -= STEP; }
     }
-    this.render();
+    this._render(dt);
     this.input.endFrame();
   }
 
-  /* ---------------- update ---------------- */
-  update(dt) {
+  _update(dt) {
     this.time += dt;
-    reactor.update(dt);
-    const intensity = getAudioIntensity();
-    this.lighting.update(dt);
-
-    if (this.state !== 'paused' && this.char) {
-      if (this.state === 'playing') {
-        const snap = this.input.snapshot();
-        this.char.update(dt, snap, this.solids);
-        this.input.consumeJumpEdges();
-        for (const ev of this.char.events) {
-          if (ev.type === 'land') this.particles.dust(ev.x, ev.y, ev.power, ev.dir);
-          if (ev.type === 'jump') this.particles.jumpWisp(ev.x, ev.y, ev.dir);
-        }
-        this.char.events.length = 0;
-
-        // checkpoints
-        for (let i = this.activeCp + 1; i < this.checkpoints.length; i++) {
-          const c = this.checkpoints[i];
-          if (Math.abs(this.char.x - c.x) < 26 && Math.abs(this.char.y - c.y) < 70) {
-            for (let k = 0; k <= i; k++) this.checkpoints[k].active = true;
-            this.activeCp = i;
-            this.onEvent?.('checkpoint', c);
-          }
-        }
-        if (this.char.y > this.killY) this.startRespawn();
-      }
-      if (this.respawnT >= 0) {
-        this.respawnT += dt;
-        const fade = this.respawnT < 0.28 ? this.respawnT / 0.28 : 1 - (this.respawnT - 0.28) / 0.4;
-        if (this.fadeEl) this.fadeEl.style.opacity = clamp(fade, 0, 1);
-        if (this.respawnT >= 0.28 && !this._teleported) {
-          this._teleported = true;
-          const c = this.checkpoints[this.activeCp] || { x: this.chapter.spawn[0], y: this.chapter.spawn[1] };
-          this.char.reset(c.x, c.y);
-        }
-        if (this.respawnT >= 0.68) { this.respawnT = -1; this._teleported = false; if (this.fadeEl) this.fadeEl.style.opacity = 0; }
-      }
-    }
-
-    // camera
-    if (this.char) {
-      const lookX = this.char.facing * 46 + this.char.vx * 0.07;
-      const tx = clamp(this.char.x + lookX - this.w / 2, -80, this.worldW - this.w + 80);
-      const ty = clamp(this.char.y - this.h * 0.62, -200, (this.killY - 260) - this.h + 240);
-      this.cam.x = approach(this.cam.x, tx, 5.2, dt);
-      this.cam.y = approach(this.cam.y, ty, 4.2, dt);
-      this.cam.shake = intensity * 1.35;
-    }
-
-    // lights (evaluated per frame from data defs)
-    this.evalLights(intensity);
-
-    // particles
-    this.particles.motes(dt, this.cam.x, this.cam.y, this.w, this.h, intensity, this.chapter?.environment?.moteColor);
+    this.audioIntensity = waveform.getAudioIntensity();
+    this.env.update(dt);
+    this.lighting.ambient = this.env.mood.ambient;
+    if (this.chapter.update) this.chapter.update(this, dt);
+    this.player.update(dt, this.input);
+    this.lighting.update(dt, this.time, this.audioIntensity, this);
     this.particles.update(dt);
+    if (this.input.pressed('respawn')) this.respawn();
+    this._camera(dt);
+    this._checkpoints();
+    if (this.bounds && this.player.y > this.bounds.killY) this.respawn();
+    this.kickV = damp(this.kickV, 0, 6, dt);
+    this.flash = Math.max(0, this.flash - dt * 2.2);
   }
 
-  startRespawn() {
-    if (this.respawnT >= 0) return;
-    this.respawnT = 0; this._teleported = false;
-    this.onEvent?.('respawn');
-  }
-
-  evalLights(intensity) {
-    const L = [];
-    for (const d of this.lightDefs) {
-      const l = { ...d };
-      switch (d.type) {
-        case 'player':
-          l.x = this.char.x + (d.dx ?? 0); l.y = this.char.y + (d.dy ?? -26); break;
-        case 'orbit':
-          l.x = d.cx + Math.cos(this.time * d.speed + (d.phase ?? 0)) * d.rx;
-          l.y = d.cy + Math.sin(this.time * d.speed * (d.speedY ?? 1) + (d.phase ?? 0)) * d.ry;
-          break;
-        case 'checkpoint': {
-          const c = this.checkpoints[d.index ?? this.activeCp];
-          if (!c) continue;
-          l.x = c.x; l.y = c.y - 40;
-          l.intensity = c.active ? (d.intensity ?? 0.9) : 0.12;
-          break;
-        }
-        default: break; // static: x,y as given
-      }
-      L.push(l);
+  _camera(dt) {
+    const p = this.player;
+    const tx = p.x + p.face * 46 + p.vx * 0.14 - this.w * 0.5;
+    const ty = p.y - 60 - this.h * 0.7;   // character low third, sky gets the frame
+    this.cam.x = damp(this.cam.x, tx, 4.5, dt);
+    this.cam.y = damp(this.cam.y, ty, 4, dt);
+    if (this.bounds) {
+      const b = this.bounds;
+      this.cam.x = (b.maxX - b.minX <= this.w) ? (b.minX + b.maxX) / 2 - this.w / 2 : clamp(this.cam.x, b.minX, b.maxX - this.w);
+      this.cam.y = (b.maxY - b.minY <= this.h) ? (b.minY + b.maxY) / 2 - this.h / 2 : clamp(this.cam.y, b.minY, b.maxY - this.h);
     }
-    this.lighting.setLights(L);
+    const m = this.env.mood;
+    const micro = this.audioIntensity * (m.shake ?? 0.5) * 1.5 + this.kickV * 2.4;
+    const t = this.time;
+    this.cam.sx = (Math.sin(t * 53.7) + Math.sin(t * 31.3) * 0.5) * 0.6 * micro;
+    this.cam.sy = (Math.cos(t * 47.1) + Math.sin(t * 27.7) * 0.5) * 0.6 * micro;
   }
 
-  /* ---------------- render ---------------- */
-  render() {
-    const { ctx, w, h } = this;
-    if (!w || !this.env) return;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    const intensity = getAudioIntensity();
-    const sh = this.cam.shake ?? 0;
-    const sx = (Math.sin(this.time * 47.3 + this.shakePh) + Math.sin(this.time * 31.7)) * 0.5 * sh;
-    const sy = (Math.sin(this.time * 53.9 + this.shakePh * 2) + Math.sin(this.time * 27.1)) * 0.5 * sh;
-    const camX = this.cam.x + sx, camY = this.cam.y + sy;
-
-    this.env.render(ctx, camX, camY, w, h, this.time, intensity);
-
-    ctx.save();
-    ctx.translate(-camX, -camY);
-
-    // world solids as silhouettes with lit top edge
-    const rim = this.lighting.rim;
-    const sil = this.chapter?.environment?.silhouette ?? '#0b0817';
-    for (const s of this.solids) {
-      if (s.x + s.w < camX - 40 || s.x > camX + w + 40) continue;
-      ctx.fillStyle = sil;
-      ctx.beginPath();
-      const rr2 = Math.min(7, s.w / 2);
-      if (ctx.roundRect) ctx.roundRect(s.x, s.y, s.w, s.h, [rr2, rr2, 0, 0]);
-      else ctx.rect(s.x, s.y, s.w, s.h);
-      ctx.fill();
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = rgba(rim.color, 0.16 * rim.strength);
-      ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(s.x + 2, s.y + 0.8); ctx.lineTo(s.x + s.w - 2, s.y + 0.8); ctx.stroke();
-      ctx.restore();
-    }
-
-    // checkpoints: pole + pennant + orb
+  _checkpoints() {
+    const p = this.player;
     for (let i = 0; i < this.checkpoints.length; i++) {
-      const c = this.checkpoints[i];
-      ctx.strokeStyle = sil; ctx.lineWidth = 3; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x, c.y - 46); ctx.stroke();
-      ctx.fillStyle = c.active ? (this.chapter?.environment?.moteColor ?? '#7ff0d8') : rgba('#7ff0d8', 0.25);
-      ctx.beginPath();
-      ctx.moveTo(c.x, c.y - 46); ctx.lineTo(c.x + 16, c.y - 41); ctx.lineTo(c.x, c.y - 36);
-      ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.arc(c.x, c.y - 50, c.active ? 3.4 + intensity * 2 : 2.4, 0, 7); ctx.fill();
-    }
-
-    // contact shadow for weight
-    if (this.char) {
-      let gy = Infinity;
-      for (const s of this.solids) {
-        if (this.char.x > s.x && this.char.x < s.x + s.w && s.y >= this.char.y - 1) gy = Math.min(gy, s.y);
-      }
-      if (gy < Infinity) {
-        const d = gy - this.char.y;
-        if (d < 150) {
-          const a = 0.30 * (1 - d / 150);
-          ctx.fillStyle = `rgba(0,0,0,${a})`;
-          ctx.beginPath();
-          ctx.ellipse(this.char.x, gy + 2, 16 * (1 - d / 300), 4.2, 0, 0, 7);
-          ctx.fill();
-        }
+      const cp = this.checkpoints[i];
+      if (!cp.taken && Math.abs(p.x - cp.x) < 34 && Math.abs(p.y - cp.y) < 70) {
+        cp.taken = true;
+        this.checkpointIndex = i;
+        this.particles.spark(cp.x, cp.y - 34, 18, rgb(this.env.mood.rim));
+        this.kick(0.7);
       }
     }
+  }
 
-    this.particles.draw(ctx, 'back');
-    if (this.char) this.charDraw.render(ctx, this.char, this.time, { silhouette: sil });
-    this.particles.draw(ctx, 'front');
+  // -------------------------------------------------------------- rendering
+  _render(dt) {
+    const { ctx, w, h, dpr } = this;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    this.env.render(ctx, this, this.time);
+
+    // world space
+    ctx.save();
+    ctx.translate(-this.cam.x + this.cam.sx, -this.cam.y + this.cam.sy);
+    this._solids(ctx);
+    if (this.chapter.drawWorld) this.chapter.drawWorld(this, ctx);
+    this._checkpointOrbs(ctx);
+    this.particles.draw(ctx);
+    this.player.draw(ctx, this);
     ctx.restore();
 
-    this.lighting.render(ctx, camX, camY, w, h, intensity);
-    this.env.renderGrade(ctx, w, h, intensity);
+    // lighting: darkness veil + additive glow
+    this.lighting.renderDarkness(ctx, this);
+    this.lighting.renderGlow(ctx, this);
+
+    // bloom: blur the glow buffer, add back
+    const b = this.bloom, bx = this.bctx;
+    bx.setTransform(1, 0, 0, 1, 0, 0);
+    bx.clearRect(0, 0, b.width, b.height);
+    bx.filter = 'blur(4px)';
+    bx.drawImage(this.lighting.glowCanvas, 0, 0, b.width, b.height);
+    bx.filter = 'none';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(b, 0, 0, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+
+    // color grade + vignette
+    const m = this.env.mood;
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.fillStyle = rgb(m.tint, m.tintAmt);
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'source-over';
+    const vg = ctx.createRadialGradient(w / 2, h * 0.46, Math.min(w, h) * 0.42, w / 2, h * 0.55, Math.max(w, h) * 0.78);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.4)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, w, h);
+
+    if (this.flash > 0) {
+      ctx.fillStyle = rgb(m.rim, this.flash * 0.45);
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    this._hud(ctx);
   }
 
-  debugInfo() {
-    return {
-      fps: this.fps,
-      state: this.state,
-      x: this.char?.x.toFixed(0), y: this.char?.y.toFixed(0),
-      vx: this.char?.vx.toFixed(0), vy: this.char?.vy.toFixed(0),
-      grounded: this.char?.grounded,
-      intensity: getAudioIntensity().toFixed(2),
-      chapter: this.chapter?.id,
-      track: this.audio?.currentName ?? '—',
-    };
+  _solids(ctx) {
+    const m = this.env.mood;
+    for (const s of this.solids) {
+      const g = ctx.createLinearGradient(0, s.y, 0, s.y + Math.min(s.h, 460));
+      g.addColorStop(0, rgb(m.ground));
+      g.addColorStop(1, 'rgb(0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(s.x, s.y, s.w, s.h);
+      // rim-lit top edge sells the silhouette against the dark mass
+      ctx.fillStyle = rgb(m.rim, 0.12);
+      ctx.fillRect(s.x, s.y, s.w, 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fillRect(s.x, s.y + 2, s.w, 1);
+    }
+  }
+
+  _checkpointOrbs(ctx) {
+    const m = this.env.mood;
+    for (let i = 0; i < this.checkpoints.length; i++) {
+      const cp = this.checkpoints[i];
+      const bob = Math.sin(this.time * 2 + i) * 3;
+      const y = cp.y - 34 + bob;
+      const active = i <= (this.checkpointIndex || 0);
+      ctx.fillStyle = rgb(m.rim, active ? 0.95 : 0.4);
+      ctx.beginPath();
+      ctx.arc(cp.x, y, active ? 5.5 : 4, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = rgb(m.rim, active ? 0.5 : 0.18);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cp.x, y, 9 + Math.sin(this.time * 3 + i) * 1.5, 0, TAU);
+      ctx.stroke();
+      const sx = cp.x - this.cam.x + this.cam.sx, sy = y - this.cam.y + this.cam.sy;
+      this.lighting.screenGlow(sx, sy, 60, m.rim, (active ? 0.5 : 0.22) * (0.7 + 0.3 * this.audioIntensity));
+    }
+  }
+
+  _hud(ctx) {
+    const m = this.env.mood;
+    ctx.textBaseline = 'top';
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('← → / A D  move   ·   space  jump   ·   1–5  music   ·   P  pause   ·   R  respawn   ·   F  fps', 14, this.h - 24);
+
+    const name = audio.trackName || '—';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.fillText(name + '.mp3', this.w - 14, 14);
+    // live intensity bar straight off the waveform sampler
+    const bw = 90;
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillRect(this.w - 14 - bw, 32, bw, 4);
+    ctx.fillStyle = rgb(m.rim, 0.9);
+    ctx.fillRect(this.w - 14 - bw, 32, bw * clamp(this.audioIntensity, 0, 1), 4);
+    ctx.textAlign = 'left';
+
+    if (this.showFps) {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillText(`${Math.round(this.fps)} fps`, 14, 14);
+    }
   }
 }

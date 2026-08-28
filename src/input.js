@@ -1,72 +1,40 @@
-/* ------------------------------------------------------------------ *
- *  Input: keyboard + touch flags with pressed/released edges.        *
- * ------------------------------------------------------------------ */
-
+// Keyboard input: held-state plus a per-frame edge queue (consumers read, engine drains).
 const KEYMAP = {
-  ArrowLeft: 'left', KeyA: 'left',
-  ArrowRight: 'right', KeyD: 'right',
-  Space: 'jump', ArrowUp: 'jump', KeyW: 'jump', KeyZ: 'jump',
+  left: ['ArrowLeft', 'KeyA'],
+  right: ['ArrowRight', 'KeyD'],
+  jump: ['Space', 'KeyZ', 'ArrowUp', 'KeyW'],
+  pause: ['Escape', 'KeyP'],
+  respawn: ['KeyR'],
+  fps: ['KeyF'],
 };
 
 export class Input {
   constructor() {
-    this.held = { left: false, right: false, jump: false };
-    this._pressed = new Set();
-    this._released = new Set();
-    this.anyKey = false;             // edge: any key/tap since last poll
-    this._onKeyDown = this._onKeyDown.bind(this);
-    this._onKeyUp = this._onKeyUp.bind(this);
-  }
-
-  attach(target = window) {
-    this._target = target;
-    target.addEventListener('keydown', this._onKeyDown, { passive: false });
-    target.addEventListener('keyup', this._onKeyUp);
-  }
-  detach() {
-    if (!this._target) return;
-    this._target.removeEventListener('keydown', this._onKeyDown);
-    this._target.removeEventListener('keyup', this._onKeyUp);
-  }
-
-  _onKeyDown(e) {
-    const a = KEYMAP[e.code];
-    if (a) {
-      e.preventDefault();
-      if (!e.repeat) {
-        this._pressed.add(a);
-        if (a === 'jump') this.anyKey = true;
-      }
-      this.held[a] = true;
-    } else if (!e.repeat && !e.metaKey && !e.ctrlKey) this.anyKey = true;
-  }
-  _onKeyUp(e) {
-    const a = KEYMAP[e.code];
-    if (a) { this.held[a] = false; if (a === 'jump') this._released.add(a); }
-  }
-
-  /** Touch buttons call this. */
-  setVirtual(action, down) {
-    if (down && !this.held[action]) this._pressed.add(action);
-    if (!down && this.held[action]) this._released.add(action);
-    this.held[action] = down;
-    if (down) this.anyKey = true;
-  }
-
-  moveX() { return (this.held.right ? 1 : 0) - (this.held.left ? 1 : 0); }
-
-  /** Snapshot consumed by one or more fixed update steps per frame. */
-  snapshot() {
-    return {
-      moveX: this.moveX(),
-      jumpHeld: this.held.jump,
-      jumpPressed: this._pressed.has('jump'),
-      jumpReleased: this._released.has('jump'),
+    this.down = new Set();
+    this.queue = [];
+    this._kd = (e) => {
+      if (this._gameKey(e.code)) e.preventDefault();
+      if (e.repeat) return;
+      this.down.add(e.code);
+      this.queue.push(e.code);
     };
+    this._ku = (e) => this.down.delete(e.code);
+    this._blur = () => this.down.clear();
+    addEventListener('keydown', this._kd);
+    addEventListener('keyup', this._ku);
+    addEventListener('blur', this._blur);
   }
-  consumeJumpEdges() { this._pressed.delete('jump'); this._released.delete('jump'); }
-  pollAnyKey() { const v = this.anyKey; this.anyKey = false; return v; }
-
-  /** Called once per rendered frame, after update steps. */
-  endFrame() { this._pressed.clear(); this._released.clear(); }
+  _gameKey(code) {
+    return ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(code);
+  }
+  isDown(action) {
+    return KEYMAP[action].some((k) => this.down.has(k));
+  }
+  // True on the frame the key went down.
+  pressed(action) {
+    return KEYMAP[action].some((k) => this.queue.includes(k));
+  }
+  endFrame() {
+    this.queue.length = 0;
+  }
 }
