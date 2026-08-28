@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Roozshomar — Platformer Test Scene</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #05060a; overflow: hidden; }
+  canvas { display: block; }
+  .veil {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(20,14,40,0.82), rgba(4,5,10,0.94));
+    backdrop-filter: blur(6px); transition: opacity 0.7s ease; z-index: 5;
+    font-family: system-ui, sans-serif; color: #e8e2f2; text-align: center; cursor: pointer;
+  }
+  .veil.gone { opacity: 0; pointer-events: none; }
+  .veil h1 { font-weight: 200; letter-spacing: 0.42em; font-size: 30px; margin: 0 0 10px; text-indent: 0.42em; }
+  .veil p { font-weight: 300; font-size: 13px; opacity: 0.62; margin: 4px 0; letter-spacing: 0.08em; }
+  .veil .hint { margin-top: 26px; opacity: 0.9; animation: pulse 2.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+  #paused { opacity: 0; pointer-events: none; cursor: default; }
+  #paused.show { opacity: 1; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="overlay" class="veil">
+  <div>
+    <h1>ROOZSHOMAR</h1>
+    <p>narrative platformer · engine test scene</p>
+    <p>movement · lighting · parallax · waveform-reactive audio</p>
+    <p class="hint">click or press space to begin</p>
+  </div>
+</div>
+<div id="paused" class="veil">
+  <div>
+    <h1>PAUSED</h1>
+    <p class="hint">press P or Esc to resume</p>
+  </div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
